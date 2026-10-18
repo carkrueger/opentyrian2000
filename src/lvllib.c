@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -19,22 +19,42 @@
 #include "lvllib.h"
 
 #include "file.h"
+#include "logging.h"
 #include "opentyr.h"
+
+#include <assert.h>
+#include <stdlib.h>
 
 JE_LvlPosType lvlPos;
 
-char levelFile[13]; /* string [12] */
+char levelFilename[13]; /* string [12] */ // FKA LvlLib.levelFile
 JE_word lvlNum;
 
-void JE_analyzeLevel(void)
+void analyzeLevel(void)
 {
-	FILE *f = dir_fopen_die(data_dir(), levelFile, "rb");
-	
-	fread_u16_die(&lvlNum, 1, f);
+	File file = dataFileOpen(levelFilename, "rb");
+	if (file.error)
+	{
+		logFatal("Failed to open file '%s': %s", levelFilename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
 
-	fread_s32_die(lvlPos, lvlNum, f);
-	
-	lvlPos[lvlNum] = ftell_eof(f);
-	
-	fclose(f);
+	lvlNum = fileReadU16(&file);
+	assert(lvlNum <= COUNTOF(lvlPos) - 1);
+	lvlNum = MIN(lvlNum, COUNTOF(lvlPos) - 1);
+
+	for (size_t i = 0; i < lvlNum; ++i)
+		lvlPos[i] = fileReadU32(&file);
+
+	long fileLength = fileGetLength(&file);
+	for (size_t i = lvlNum; i < COUNTOF(lvlPos); ++i)
+		lvlPos[i] = fileLength;
+
+	if (file.error)
+	{
+		logFatal("Failed to read from file '%s': %s", levelFilename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	fileClose(&file);
 }

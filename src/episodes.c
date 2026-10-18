@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "file.h"
+#include "logging.h"
 #include "lvllib.h"
 #include "lvlmast.h"
 #include "opentyr.h"
@@ -41,9 +42,8 @@ JE_EnemyDatType enemyDat;
 /* EPISODE variables */
 JE_byte    initial_episode_num, episodeNum = 0;
 JE_boolean episodeAvail[EPISODE_MAX]; /* [1..episodemax] */
-char       episode_file[13], cube_file[13];
-
-JE_longint episode1DataLoc;
+char       episodeFilename[13];  // FKA Episodes.macroFile
+char       cubeFilename[13];  // FKA Episodes.cubeFile
 
 /* Tells the game whether the level currently loaded is a bonus level. */
 JE_boolean bonusLevel;
@@ -53,176 +53,205 @@ JE_boolean jumpBackToEpisode1;
 
 void JE_loadItemDat(void)
 {
-	FILE *f = NULL;
+	const char *filename;
+
+	File file;
 	
 	if (episodeNum <= 3)
 	{
-		f = dir_fopen_die(data_dir(), "tyrian.hdt", "rb");
-		fread_s32_die(&episode1DataLoc, 1, f);
-		fseek(f, episode1DataLoc, SEEK_SET);
+		filename = "tyrian.hdt";
+
+		file = dataFileOpen(filename, "rb");
+		if (file.error)
+		{
+			logFatal("Failed to open file '%s': %s", filename, fileGetError(&file));
+			exit(EXIT_FAILURE);
+		}
+
+		long position = fileReadU32(&file);
+
+		fileSetPosition(&file, position);
 	}
 	else
 	{
-		// episode 4 stores item data in the level file
-		f = dir_fopen_die(data_dir(), levelFile, "rb");
-		fseek(f, lvlPos[lvlNum-1], SEEK_SET);
+		// Episode 4 stores item data in the level file.
+		filename = levelFilename;
+
+		file = dataFileOpen(filename, "rb");
+		if (file.error)
+		{
+			logFatal("Failed to open file '%s': %s", filename, fileGetError(&file));
+			exit(EXIT_FAILURE);
+		}
+
+		fileSetPosition(&file, lvlPos[lvlNum-1]);
 	}
 
-	JE_word itemNum[7]; /* [1..7] */
-	fread_u16_die(itemNum, 7, f);
+	Uint16 counts[7];
+	fileReadU16Array(&file, counts, COUNTOF(counts));
 
-	const int weapons_bounds[2][2] = {{0, WEAP_END1}, {WEAP_START2, WEAP_NUM}};
-	for (int bank = 0; bank < 2; ++bank)
+	// Tyrian 2000 stores a second bank of weapons and enemies after the first;
+	// the counts in the header only cover the first bank.
+	assert(counts[0] == WEAP_END1);
+	assert(counts[1] == PORT_NUM);
+	assert(counts[2] == POWER_NUM);
+	assert(counts[3] == SHIP_NUM);
+	assert(counts[4] == OPTION_NUM);
+	assert(counts[5] == SHIELD_NUM);
+	assert(counts[6] == ENEMY_END1);
+
+	const size_t weapons_bounds[2][2] = {{0, WEAP_END1}, {WEAP_START2, WEAP_NUM}};
+	for (size_t bank = 0; bank < 2; ++bank)
 	{
-		for (int i = weapons_bounds[bank][0]; i < weapons_bounds[bank][1] + 1; ++i)
+		for (size_t i = weapons_bounds[bank][0]; i < weapons_bounds[bank][1] + 1; ++i)
 		{
-			fread_u16_die(&weapons[i].drain,           1, f);
-			fread_u8_die( &weapons[i].shotrepeat,      1, f);
-			fread_u8_die( &weapons[i].multi,           1, f);
-			fread_u16_die(&weapons[i].weapani,         1, f);
-			fread_u8_die( &weapons[i].max,             1, f);
-			fread_u8_die( &weapons[i].tx,              1, f);
-			fread_u8_die( &weapons[i].ty,              1, f);
-			fread_u8_die( &weapons[i].aim,             1, f);
-			fread_u8_die(  weapons[i].attack,          8, f);
-			fread_u8_die(  weapons[i].del,             8, f);
-			fread_s8_die(  weapons[i].sx,              8, f);
-			fread_s8_die(  weapons[i].sy,              8, f);
-			fread_s8_die(  weapons[i].bx,              8, f);
-			fread_s8_die(  weapons[i].by,              8, f);
-			fread_u16_die( weapons[i].sg,              8, f);
-			fread_s8_die( &weapons[i].acceleration,    1, f);
-			fread_s8_die( &weapons[i].accelerationx,   1, f);
-			fread_u8_die( &weapons[i].circlesize,      1, f);
-			fread_u8_die( &weapons[i].sound,           1, f);
-			fread_u8_die( &weapons[i].trail,           1, f);
-			fread_u8_die( &weapons[i].shipblastfilter, 1, f);
+			fileReadU16Array(&file, &weapons[i].drain,           1);
+			fileReadU8Array( &file, &weapons[i].shotrepeat,      1);
+			fileReadU8Array( &file, &weapons[i].multi,           1);
+			fileReadU16Array(&file, &weapons[i].weapani,         1);
+			fileReadU8Array( &file, &weapons[i].max,             1);
+			fileReadU8Array( &file, &weapons[i].tx,              1);
+			fileReadU8Array( &file, &weapons[i].ty,              1);
+			fileReadU8Array( &file, &weapons[i].aim,             1);
+			fileReadU8Array( &file,  weapons[i].attack,          8);
+			fileReadU8Array( &file,  weapons[i].del,             8);
+			fileReadS8Array( &file,  weapons[i].sx,              8);
+			fileReadS8Array( &file,  weapons[i].sy,              8);
+			fileReadS8Array( &file,  weapons[i].bx,              8);
+			fileReadS8Array( &file,  weapons[i].by,              8);
+			fileReadU16Array(&file,  weapons[i].sg,              8);
+			fileReadS8Array( &file, &weapons[i].acceleration,    1);
+			fileReadS8Array( &file, &weapons[i].accelerationx,   1);
+			fileReadU8Array( &file, &weapons[i].circlesize,      1);
+			fileReadU8Array( &file, &weapons[i].sound,           1);
+			fileReadU8Array( &file, &weapons[i].trail,           1);
+			fileReadU8Array( &file, &weapons[i].shipblastfilter, 1);
 		}
 	}
 	
-	for (int i = 0; i < PORT_NUM + 1; ++i)
+	for (size_t i = 0; i < PORT_NUM + 1; ++i)
 	{
-		Uint8 nameLen;
-		fread_u8_die( &nameLen,                   1, f);
-		fread_die(    &weaponPort[i].name,    1, 30, f);
+		Uint8 nameLen = fileReadU8(&file);
+		fileReadCharArray(&file,  weaponPort[i].name,       30);
 		weaponPort[i].name[MIN(nameLen, 30)] = '\0';
-		fread_u8_die( &weaponPort[i].opnum,       1, f);
-		fread_u16_die( weaponPort[i].op[0],      11, f);
-		fread_u16_die( weaponPort[i].op[1],      11, f);
-		fread_u16_die(&weaponPort[i].cost,        1, f);
-		fread_u16_die(&weaponPort[i].itemgraphic, 1, f);
-		fread_u16_die(&weaponPort[i].poweruse,    1, f);
+		fileReadU8Array(  &file, &weaponPort[i].opnum,       1);
+		fileReadU16Array( &file,  weaponPort[i].op[0],      11);
+		fileReadU16Array( &file,  weaponPort[i].op[1],      11);
+		fileReadU16Array( &file, &weaponPort[i].cost,        1);
+		fileReadU16Array( &file, &weaponPort[i].itemgraphic, 1);
+		fileReadU16Array( &file, &weaponPort[i].poweruse,    1);
 	}
 
-	for (int i = 0; i < SPECIAL_NUM + 1; ++i)
+	for (size_t i = 0; i < SPECIAL_NUM + 1; ++i)
 	{
-		Uint8 nameLen;
-		fread_u8_die( &nameLen,                1, f);
-		fread_die(    &special[i].name,    1, 30, f);
+		Uint8 nameLen = fileReadU8(&file);
+		fileReadCharArray(&file,  special[i].name,       30);
 		special[i].name[MIN(nameLen, 30)] = '\0';
-		fread_u16_die(&special[i].itemgraphic, 1, f);
-		fread_u8_die( &special[i].pwr,         1, f);
-		fread_u8_die( &special[i].stype,       1, f);
-		fread_u16_die(&special[i].wpn,         1, f);
+		fileReadU16Array( &file, &special[i].itemgraphic, 1);
+		fileReadU8Array(  &file, &special[i].pwr,         1);
+		fileReadU8Array(  &file, &special[i].stype,       1);
+		fileReadU16Array( &file, &special[i].wpn,         1);
 	}
 
-	for (int i = 0; i < POWER_NUM + 1; ++i)
+	for (size_t i = 0; i < POWER_NUM + 1; ++i)
 	{
-		Uint8 nameLen;
-		fread_u8_die( &nameLen,                 1, f);
-		fread_die(    &powerSys[i].name,    1, 30, f);
+		Uint8 nameLen = fileReadU8(&file);
+		fileReadCharArray(&file,  powerSys[i].name,       30);
 		powerSys[i].name[MIN(nameLen, 30)] = '\0';
-		fread_u16_die(&powerSys[i].itemgraphic, 1, f);
-		fread_u8_die( &powerSys[i].power,       1, f);
-		fread_s8_die( &powerSys[i].speed,       1, f);
-		fread_u16_die(&powerSys[i].cost,        1, f);
+		fileReadU16Array( &file, &powerSys[i].itemgraphic, 1);
+		fileReadU8Array(  &file, &powerSys[i].power,       1);
+		fileReadS8Array(  &file, &powerSys[i].speed,       1);
+		fileReadU16Array( &file, &powerSys[i].cost,        1);
 	}
 
-	for (int i = 0; i < SHIP_NUM + 1; ++i)
+	for (size_t i = 0; i < SHIP_NUM + 1; ++i)
 	{
-		Uint8 nameLen;
-		fread_u8_die( &nameLen,                 1, f);
-		fread_die(    &ships[i].name,       1, 30, f);
+		Uint8 nameLen = fileReadU8(&file);
+		fileReadCharArray(&file,  ships[i].name,          30);
 		ships[i].name[MIN(nameLen, 30)] = '\0';
-		fread_u16_die(&ships[i].shipgraphic,    1, f);
-		fread_u16_die(&ships[i].itemgraphic,    1, f);
-		fread_u8_die( &ships[i].ani,            1, f);
-		fread_s8_die( &ships[i].spd,            1, f);
-		fread_u8_die( &ships[i].dmg,            1, f);
-		fread_u16_die(&ships[i].cost,           1, f);
-		fread_u8_die( &ships[i].bigshipgraphic, 1, f);
+		fileReadU16Array( &file, &ships[i].shipgraphic,    1);
+		fileReadU16Array( &file, &ships[i].itemgraphic,    1);
+		fileReadU8Array(  &file, &ships[i].ani,            1);
+		fileReadS8Array(  &file, &ships[i].spd,            1);
+		fileReadU8Array(  &file, &ships[i].dmg,            1);
+		fileReadU16Array( &file, &ships[i].cost,           1);
+		fileReadU8Array(  &file, &ships[i].bigshipgraphic, 1);
 	}
 
-	for (int i = 0; i < OPTION_NUM + 1; ++i)
+	for (size_t i = 0; i < OPTION_NUM + 1; ++i)
 	{
-		Uint8 nameLen;
-		fread_u8_die(  &nameLen,                1, f);
-		fread_die(     &options[i].name,    1, 30, f);
+		Uint8 nameLen = fileReadU8(&file);
+		fileReadCharArray(&file,  options[i].name,       30);
 		options[i].name[MIN(nameLen, 30)] = '\0';
-		fread_u8_die(  &options[i].pwr,         1, f);
-		fread_u16_die( &options[i].itemgraphic, 1, f);
-		fread_u16_die( &options[i].cost,        1, f);
-		fread_u8_die(  &options[i].tr,          1, f);
-		fread_u8_die(  &options[i].option,      1, f);
-		fread_s8_die(  &options[i].opspd,       1, f);
-		fread_u8_die(  &options[i].ani,         1, f);
-		fread_u16_die(  options[i].gr,         20, f);
-		fread_u8_die(  &options[i].wport,       1, f);
-		fread_u16_die( &options[i].wpnum,       1, f);
-		fread_u8_die(  &options[i].ammo,        1, f);
-		fread_bool_die(&options[i].stop,           f);
-		fread_u8_die(  &options[i].icongr,      1, f);
+		fileReadU8Array(  &file, &options[i].pwr,         1);
+		fileReadU16Array( &file, &options[i].itemgraphic, 1);
+		fileReadU16Array( &file, &options[i].cost,        1);
+		fileReadU8Array(  &file, &options[i].tr,          1);
+		fileReadU8Array(  &file, &options[i].option,      1);
+		fileReadS8Array(  &file, &options[i].opspd,       1);
+		fileReadU8Array(  &file, &options[i].ani,         1);
+		fileReadU16Array( &file,  options[i].gr,         20);
+		fileReadU8Array(  &file, &options[i].wport,       1);
+		fileReadU16Array( &file, &options[i].wpnum,       1);
+		fileReadU8Array(  &file, &options[i].ammo,        1);
+		fileReadBoolArray(&file, &options[i].stop,        1);
+		fileReadU8Array(  &file, &options[i].icongr,      1);
 	}
 
-	for (int i = 0; i < SHIELD_NUM + 1; ++i)
+	for (size_t i = 0; i < SHIELD_NUM + 1; ++i)
 	{
-		Uint8 nameLen;
-		fread_u8_die( &nameLen,                1, f);
-		fread_die(    &shields[i].name,    1, 30, f);
+		Uint8 nameLen = fileReadU8(&file);
+		fileReadCharArray(&file,  shields[i].name,       30);
 		shields[i].name[MIN(nameLen, 30)] = '\0';
-		fread_u8_die( &shields[i].tpwr,        1, f);
-		fread_u8_die( &shields[i].mpwr,        1, f);
-		fread_u16_die(&shields[i].itemgraphic, 1, f);
-		fread_u16_die(&shields[i].cost,        1, f);
+		fileReadU8Array(  &file, &shields[i].tpwr,        1);
+		fileReadU8Array(  &file, &shields[i].mpwr,        1);
+		fileReadU16Array( &file, &shields[i].itemgraphic, 1);
+		fileReadU16Array( &file, &shields[i].cost,        1);
 	}
 
-	const int enemies_bounds[2][2] = {{0, ENEMY_END1}, {ENEMY_START2, ENEMY_NUM}};
-	for (int bank = 0; bank < 2; ++bank)
+	const size_t enemies_bounds[2][2] = {{0, ENEMY_END1}, {ENEMY_START2, ENEMY_NUM}};
+	for (size_t bank = 0; bank < 2; ++bank)
 	{
-		for (int i = enemies_bounds[bank][0]; i < enemies_bounds[bank][1] + 1; ++i)
+		for (size_t i = enemies_bounds[bank][0]; i < enemies_bounds[bank][1] + 1; ++i)
 		{
-			fread_u8_die( &enemyDat[i].ani,           1, f);
-			fread_u8_die(  enemyDat[i].tur,           3, f);
-			fread_u8_die(  enemyDat[i].freq,          3, f);
-			fread_s8_die( &enemyDat[i].xmove,         1, f);
-			fread_s8_die( &enemyDat[i].ymove,         1, f);
-			fread_s8_die( &enemyDat[i].xaccel,        1, f);
-			fread_s8_die( &enemyDat[i].yaccel,        1, f);
-			fread_s8_die( &enemyDat[i].xcaccel,       1, f);
-			fread_s8_die( &enemyDat[i].ycaccel,       1, f);
-			fread_s16_die(&enemyDat[i].startx,        1, f);
-			fread_s16_die(&enemyDat[i].starty,        1, f);
-			fread_s8_die( &enemyDat[i].startxc,       1, f);
-			fread_s8_die( &enemyDat[i].startyc,       1, f);
-			fread_u8_die( &enemyDat[i].armor,         1, f);
-			fread_u8_die( &enemyDat[i].esize,         1, f);
-			fread_u16_die( enemyDat[i].egraphic,     20, f);
-			fread_u8_die( &enemyDat[i].explosiontype, 1, f);
-			fread_u8_die( &enemyDat[i].animate,       1, f);
-			fread_u8_die( &enemyDat[i].shapebank,     1, f);
-			fread_s8_die( &enemyDat[i].xrev,          1, f);
-			fread_s8_die( &enemyDat[i].yrev,          1, f);
-			fread_u16_die(&enemyDat[i].dgr,           1, f);
-			fread_s8_die( &enemyDat[i].dlevel,        1, f);
-			fread_s8_die( &enemyDat[i].dani,          1, f);
-			fread_u8_die( &enemyDat[i].elaunchfreq,   1, f);
-			fread_u16_die(&enemyDat[i].elaunchtype,   1, f);
-			fread_s16_die(&enemyDat[i].value,         1, f);
-			fread_u16_die(&enemyDat[i].eenemydie,     1, f);
+			fileReadU8Array( &file, &enemyDat[i].ani,           1);
+			fileReadU8Array( &file,  enemyDat[i].tur,           3);
+			fileReadU8Array( &file,  enemyDat[i].freq,          3);
+			fileReadS8Array( &file, &enemyDat[i].xmove,         1);
+			fileReadS8Array( &file, &enemyDat[i].ymove,         1);
+			fileReadS8Array( &file, &enemyDat[i].xaccel,        1);
+			fileReadS8Array( &file, &enemyDat[i].yaccel,        1);
+			fileReadS8Array( &file, &enemyDat[i].xcaccel,       1);
+			fileReadS8Array( &file, &enemyDat[i].ycaccel,       1);
+			fileReadS16Array(&file, &enemyDat[i].startx,        1);
+			fileReadS16Array(&file, &enemyDat[i].starty,        1);
+			fileReadS8Array( &file, &enemyDat[i].startxc,       1);
+			fileReadS8Array( &file, &enemyDat[i].startyc,       1);
+			fileReadU8Array( &file, &enemyDat[i].armor,         1);
+			fileReadU8Array( &file, &enemyDat[i].esize,         1);
+			fileReadU16Array(&file,  enemyDat[i].egraphic,     20);
+			fileReadU8Array( &file, &enemyDat[i].explosiontype, 1);
+			fileReadU8Array( &file, &enemyDat[i].animate,       1);
+			fileReadU8Array( &file, &enemyDat[i].shapebank,     1);
+			fileReadS8Array( &file, &enemyDat[i].xrev,          1);
+			fileReadS8Array( &file, &enemyDat[i].yrev,          1);
+			fileReadU16Array(&file, &enemyDat[i].dgr,           1);
+			fileReadS8Array( &file, &enemyDat[i].dlevel,        1);
+			fileReadS8Array( &file, &enemyDat[i].dani,          1);
+			fileReadU8Array( &file, &enemyDat[i].elaunchfreq,   1);
+			fileReadU16Array(&file, &enemyDat[i].elaunchtype,   1);
+			fileReadS16Array(&file, &enemyDat[i].value,         1);
+			fileReadU16Array(&file, &enemyDat[i].eenemydie,     1);
 		}
 	}
 	
-	fclose(f);
+	if (file.error)
+	{
+		logFatal("Failed to read from file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	fileClose(&file);
 }
 
 void JE_initEpisode(JE_byte newEpisode)
@@ -232,11 +261,11 @@ void JE_initEpisode(JE_byte newEpisode)
 	
 	episodeNum = newEpisode;
 	
-	snprintf(levelFile,    sizeof(levelFile),    "tyrian%hhu.lvl",  episodeNum);
-	snprintf(cube_file,    sizeof(cube_file),    "cubetxt%hhu.dat", episodeNum);
-	snprintf(episode_file, sizeof(episode_file), "levels%hhu.dat",  episodeNum);
+	snprintf(levelFilename,   sizeof levelFilename,   "tyrian%d.lvl",  episodeNum);
+	snprintf(cubeFilename,    sizeof cubeFilename,    "cubetxt%d.dat", episodeNum);
+	snprintf(episodeFilename, sizeof episodeFilename, "levels%d.dat",  episodeNum);
 	
-	JE_analyzeLevel();
+	analyzeLevel();
 	JE_loadItemDat();
 }
 
@@ -244,9 +273,9 @@ void JE_scanForEpisodes(void)
 {
 	for (int i = 0; i < EPISODE_MAX; ++i)
 	{
-		char ep_file[20];
-		snprintf(ep_file, sizeof(ep_file), "tyrian%d.lvl", i + 1);
-		episodeAvail[i] = dir_file_exists(data_dir(), ep_file);
+		char filename[13];
+		snprintf(filename, sizeof filename, "tyrian%d.lvl", i + 1);
+		episodeAvail[i] = dataFileExists(filename);
 	}
 }
 

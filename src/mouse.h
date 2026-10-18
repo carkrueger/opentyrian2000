@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -21,8 +21,6 @@
 
 #include "opentyr.h"
 
-#include "SDL.h"
-
 enum
 {
 	MOUSE_POINTER_NORMAL = 0,
@@ -36,8 +34,6 @@ extern bool has_mouse;
 
 extern bool mouseInactive;
 extern JE_byte mouseCursor;
-extern JE_word mouseX, mouseY, mouseButton;
-extern JE_word mouseXB, mouseYB;
 
 void JE_mouseStart(void);
 void JE_mouseStartFilter(Uint8 filter);

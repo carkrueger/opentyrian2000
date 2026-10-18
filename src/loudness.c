@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -20,11 +20,14 @@
 
 #include "file.h"
 #include "lds_play.h"
-#include "nortsong.h"
+#include "logging.h"
 #include "opentyr.h"
-#include "params.h"
+#include "opl.h"
+
+#include "SDL.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -62,9 +65,8 @@ static int samplesPerLdsUpdateFrac;
 static int samplesUntilLdsUpdate = 0;
 static int samplesUntilLdsUpdateFrac = 0;
 
-static FILE *music_file = NULL;
-static Uint32 *song_offset;
-static Uint16 song_count = 0;
+static long *songPositions = NULL;
+static Uint16 songsCount = 0;
 
 #define CHANNEL_COUNT 8
 static const Sint16 *channelSamples[CHANNEL_COUNT];
@@ -89,9 +91,10 @@ bool init_audio(void)
 	ask.samples = 256 * OUTPUT_QUALITY; // ~23 ms
 	ask.callback = audioCallback;
 
-	if (SDL_InitSubSystem(SDL_INIT_AUDIO))
+	if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0)
 	{
-		fprintf(stderr, "error: failed to initialize SDL audio: %s\n", SDL_GetError());
+		logError("Failed to initialize SDL audio: %s", SDL_GetError());
+
 		audio_disabled = true;
 		return false;
 	}
@@ -104,7 +107,10 @@ bool init_audio(void)
 
 	if (audioDevice == 0)
 	{
-		fprintf(stderr, "error: SDL failed to open audio device: %s\n", SDL_GetError());
+		logError("Failed to open audio device: %s", SDL_GetError());
+
+		SDL_QuitSubSystem(SDL_INIT_AUDIO);
+
 		audio_disabled = true;
 		return false;
 	}
@@ -243,33 +249,60 @@ void deinit_audio(void)
 	lds_free();
 }
 
-void load_music(void)  // FKA NortSong.loadSong
-{
-	if (music_file == NULL)
-	{
-		music_file = dir_fopen_die(data_dir(), "music.mus", "rb");
-
-		fread_u16_die(&song_count, 1, music_file);
-
-		song_offset = malloc((song_count + 1) * sizeof(*song_offset));
-
-		fread_u32_die(song_offset, song_count, music_file);
-
-		song_offset[song_count] = ftell_eof(music_file);
-	}
-}
-
 static void load_song(unsigned int song_num)  // FKA NortSong.loadSong
 {
-	if (song_num < song_count)
+	const char *filename = "music.mus";
+
+	File file = dataFileOpen(filename, "rb");
+	if (file.error)
 	{
-		unsigned int song_size = song_offset[song_num + 1] - song_offset[song_num];
-		lds_load(music_file, song_offset[song_num], song_size);
+		logFatal("Failed to open file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
 	}
-	else
+
+	static bool first = true;
+	if (first)
 	{
-		fprintf(stderr, "warning: failed to load song %d\n", song_num + 1);
+		first = false;
+
+		songsCount = fileReadU16(&file);
+
+		size_t songPositionsCount = songsCount + 1;
+		songPositions = malloc(sizeof *songPositions * songPositionsCount);
+
+		for (size_t i = 0; i < songsCount; ++i)
+			songPositions[i] = fileReadU32(&file);
+
+		songPositions[songsCount] = fileGetLength(&file);
+
+		if (file.error)
+			logError("Failed to read from file '%s': %s", filename, fileGetError(&file));
 	}
+
+	if (song_num >= songsCount)
+	{
+		logError("Attempted to load song %u, which does not exist.", song_num);
+		return;
+	}
+
+	long position = songPositions[song_num];
+	long endPosition = songPositions[song_num + 1];
+	size_t size = endPosition > position ? endPosition - position : 0;
+
+	fileSetPosition(&file, position);
+
+	void *data = malloc(size);
+	fileReadExactly(&file, data, size);
+
+	if (file.error)
+		logError("Failed to read from file '%s': %s", filename, fileGetError(&file));
+
+	fileClose(&file);
+
+	if (!lds_load(data, size))
+		logError("Failed to load song %u.", song_num);
+
+	free(data);
 }
 
 void play_song(unsigned int song_num)  // FKA NortSong.playSong

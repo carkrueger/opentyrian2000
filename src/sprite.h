@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -20,10 +20,12 @@
 #define SPRITE_H
 
 #include "opentyr.h"
+#include "file.h"
 
 #include "SDL.h"
 
 #include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 
 #define FONT_SHAPES       0
@@ -48,7 +50,7 @@ Sprite;
 
 typedef struct
 {
-	unsigned int count;
+	size_t count;
 	Sprite sprite[SPRITES_PER_TABLE_MAX];
 }
 Sprite_array;
@@ -76,7 +78,7 @@ static inline Uint16 get_sprite_height(unsigned int table, unsigned int index)
 }
 
 void load_sprites_file(unsigned int table, const char *filename);
-void load_sprites(unsigned int table, FILE *f);
+void load_sprites(unsigned int table, File *file);
 void free_sprites(unsigned int table);
 
 void blit_sprite(SDL_Surface *, int x, int y, unsigned int table, unsigned int index); // JE_newDrawCShapeNum
@@ -115,7 +117,7 @@ extern Sprite2_array spriteSheet12;  // fka shapesW2
 extern Sprite2_array spriteSheetT2000; // fka shapesT2k
 
 void JE_loadCompShapes(Sprite2_array *, char s);
-void JE_loadCompShapesB(Sprite2_array *, FILE *f);
+void JE_loadCompShapesB(Sprite2_array *, File *file);
 void free_sprite2s(Sprite2_array *);
 
 void blit_sprite2(SDL_Surface *, int x, int y, Sprite2_array, unsigned int index);

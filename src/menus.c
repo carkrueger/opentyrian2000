@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,16 +22,13 @@
 #include "episodes.h"
 #include "font.h"
 #include "fonthand.h"
-#include "joystick.h"
 #include "keyboard.h"
 #include "mouse.h"
-#include "network.h"
 #include "nortsong.h"
 #include "opentyr.h"
 #include "palette.h"
 #include "picload.h"
 #include "sprite.h"
-#include "vga256d.h"
 #include "video.h"
 
 char episode_name[6][31];
@@ -67,12 +64,14 @@ bool gameplaySelect(void)
 
 	for (; ; )
 	{
+		setFrameCount(1);
+
 		if (restart)
 		{
 			JE_loadPic(VGAScreen2, 2, false);
 
 			// Draw header.
-			draw_font_hv_shadow(VGAScreen2, xCenter, yMenuHeader, gameplay_name[0], large_font, centered, 15, -3, false, 2);
+			drawFontHvShadowAligned(VGAScreen2, xCenter, yMenuHeader, gameplay_name[0], FONT_LARGE, ALIGN_CENTER, 15, -3, false, 2);
 		}
 
 		// Restore background and header.
@@ -83,14 +82,14 @@ bool gameplaySelect(void)
 		{
 			const char *const text = gameplay_name[i + 1];
 
-			wMenuItem[i] = JE_textWidth(text, normal_font);
+			wMenuItem[i] = JE_textWidth(text, FONT_NORMAL);
 			const int x = xCenter - wMenuItem[i] / 2;
 			const int y = yMenuItems + dyMenuItems * i;
 
 			const bool selected = i == selectedIndex;
 			const bool disabled = i == MENU_ITEM_NETWORK;
 
-			draw_font_hv_shadow(VGAScreen, x, y, text, normal_font, left_aligned, 15, -4 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+			drawFontHvShadow(VGAScreen, x, y, text, FONT_NORMAL, 15, -4 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 		}
 
 		if (restart)
@@ -102,41 +101,31 @@ bool gameplaySelect(void)
 			restart = false;
 		}
 
-		service_SDL_events(true);
-
 		JE_mouseStart();
 		JE_showVGA();
 		JE_mouseReplace();
 
-		bool mouseMoved = false;
-		do
-		{
-			SDL_Delay(16);
-
-			Uint16 oldMouseX = mouse_x;
-			Uint16 oldMouseY = mouse_y;
-
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
-
-			mouseMoved = mouse_x != oldMouseX || mouse_y != oldMouseY;
-		} while (!(newkey || newmouse || mouseMoved));
+		waitUntilElapsed();
+		waitUntilHasInput(INPUT_ANY);
 
 		// Handle interaction.
 
 		bool action = false;
 		bool cancel = false;
 
-		if (mouseMoved || newmouse)
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_ANY, &mouseInput))
 		{
 			// Find menu item that was hovered or clicked.
 			for (size_t i = 0; i < menuItemsCount; ++i)
 			{
 				const int xMenuItem = xCenter - wMenuItem[i] / 2;
-				if (mouse_x >= xMenuItem && mouse_x < xMenuItem + wMenuItem[i])
+				if (mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem[i])
 				{
 					const int yMenuItem = yMenuItems + dyMenuItems * i;
-					if (mouse_y >= yMenuItem && mouse_y < yMenuItem + hMenuItem)
+					if (mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 					{
 						if (selectedIndex != i)
 						{
@@ -145,9 +134,9 @@ bool gameplaySelect(void)
 							selectedIndex = i;
 						}
 
-						if (newmouse && lastmouse_but == SDL_BUTTON_LEFT &&
-						    lastmouse_x >= xMenuItem && lastmouse_x < xMenuItem + wMenuItem[i] &&
-						    lastmouse_y >= yMenuItem && lastmouse_y < yMenuItem + hMenuItem)
+						if (mouseInput.button == SDL_BUTTON_LEFT &&
+						    mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem[i] &&
+						    mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 						{
 							action = true;
 						}
@@ -156,20 +145,17 @@ bool gameplaySelect(void)
 					}
 				}
 			}
-		}
 
-		if (newmouse)
-		{
-			if (lastmouse_but == SDL_BUTTON_RIGHT)
+			if (mouseInput.button == SDL_BUTTON_RIGHT)
 			{
 				JE_playSampleNum(S_SPRING);
 
 				cancel = true;
 			}
 		}
-		else if (newkey)
+		else if (keyboardGetInput(&keyboardInput))
 		{
-			switch (lastkey_scan)
+			switch (keyboardInput.scancode)
 			{
 			case SDL_SCANCODE_UP:
 			{
@@ -264,12 +250,14 @@ bool episodeSelect(void)
 
 	for (; ; )
 	{
+		setFrameCount(1);
+
 		if (restart)
 		{
 			JE_loadPic(VGAScreen2, 2, false);
 
 			// Draw header.
-			draw_font_hv_shadow(VGAScreen2, xCenter, yMenuHeader, episode_name[0], large_font, centered, 15, -3, false, 2);
+			drawFontHvShadowAligned(VGAScreen2, xCenter, yMenuHeader, episode_name[0], FONT_LARGE, ALIGN_CENTER, 15, -3, false, 2);
 		}
 
 		// Restore background and header.
@@ -280,13 +268,13 @@ bool episodeSelect(void)
 		{
 			const char *const text = episode_name[i + 1];
 
-			wMenuItem[i] = JE_textWidth(text, normal_font);
+			wMenuItem[i] = JE_textWidth(text, FONT_NORMAL);
 			const int y = yMenuItems + dyMenuItems * i;
 
 			const bool selected = i == selectedIndex;
 			const bool disabled = !episodeAvail[i];
 
-			draw_font_hv_shadow(VGAScreen, xMenuItem, y, text, normal_font, left_aligned, 15, -4 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+			drawFontHvShadow(VGAScreen, xMenuItem, y, text, FONT_NORMAL, 15, -4 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 		}
 
 		if (restart)
@@ -298,42 +286,30 @@ bool episodeSelect(void)
 			restart = false;
 		}
 
-		service_SDL_events(true);
-
 		JE_mouseStart();
 		JE_showVGA();
 		JE_mouseReplace();
 
-		bool mouseMoved = false;
-		do
-		{
-			SDL_Delay(16);
-
-			Uint16 oldMouseX = mouse_x;
-			Uint16 oldMouseY = mouse_y;
-
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
-
-			NETWORK_KEEP_ALIVE();
-
-			mouseMoved = mouse_x != oldMouseX || mouse_y != oldMouseY;
-		} while (!(newkey || newmouse || mouseMoved));
+		waitUntilElapsed();
+		waitUntilHasInput(INPUT_ANY);
 
 		// Handle interaction.
 
 		bool action = false;
 		bool cancel = false;
 
-		if (mouseMoved || newmouse)
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_ANY, &mouseInput))
 		{
 			// Find menu item that was hovered or clicked.
 			for (size_t i = 0; i < menuItemsCount; ++i)
 			{
-				if (mouse_x >= xMenuItem && mouse_x < xMenuItem + wMenuItem[i])
+				if (mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem[i])
 				{
 					const int yMenuItem = yMenuItems + dyMenuItems * i;
-					if (mouse_y >= yMenuItem && mouse_y < yMenuItem + hMenuItem)
+					if (mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 					{
 						if (selectedIndex != i)
 						{
@@ -342,9 +318,9 @@ bool episodeSelect(void)
 							selectedIndex = i;
 						}
 
-						if (newmouse && lastmouse_but == SDL_BUTTON_LEFT &&
-						    lastmouse_x >= xMenuItem && lastmouse_x < xMenuItem + wMenuItem[i] &&
-						    lastmouse_y >= yMenuItem && lastmouse_y < yMenuItem + hMenuItem)
+						if (mouseInput.button == SDL_BUTTON_LEFT &&
+						    mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem[i] &&
+						    mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 						{
 							action = true;
 						}
@@ -353,20 +329,17 @@ bool episodeSelect(void)
 					}
 				}
 			}
-		}
 
-		if (newmouse)
-		{
-			if (lastmouse_but == SDL_BUTTON_RIGHT)
+			if (mouseInput.button == SDL_BUTTON_RIGHT)
 			{
 				JE_playSampleNum(S_SPRING);
 
 				cancel = true;
 			}
 		}
-		else if (newkey)
+		else if (keyboardGetInput(&keyboardInput))
 		{
-			switch (lastkey_scan)
+			switch (keyboardInput.scancode)
 			{
 			case SDL_SCANCODE_UP:
 			{
@@ -452,12 +425,14 @@ bool difficultySelect(void)
 
 	for (; ; )
 	{
+		setFrameCount(1);
+
 		if (restart)
 		{
 			JE_loadPic(VGAScreen2, 2, false);
 
 			// Draw header.
-			draw_font_hv_shadow(VGAScreen2, xCenter, yMenuHeader, difficulty_name[0], large_font, centered, 15, -3, false, 2);
+			drawFontHvShadowAligned(VGAScreen2, xCenter, yMenuHeader, difficulty_name[0], FONT_LARGE, ALIGN_CENTER, 15, -3, false, 2);
 		}
 
 		// Restore background and header.
@@ -468,13 +443,13 @@ bool difficultySelect(void)
 		{
 			const char *const text = difficulty_name[i + 1];
 
-			wMenuItem[i] = JE_textWidth(text, normal_font);
+			wMenuItem[i] = JE_textWidth(text, FONT_NORMAL);
 			const int x = xCenter - wMenuItem[i] / 2;
 			const int y = yMenuItems + dyMenuItems * i;
 
 			const bool selected = i == selectedIndex;
 
-			draw_font_hv_shadow(VGAScreen, x, y, text, normal_font, left_aligned, 15, -4 + (selected ? 2 : 0), false, 2);
+			drawFontHvShadow(VGAScreen, x, y, text, FONT_NORMAL, 15, -4 + (selected ? 2 : 0), false, 2);
 		}
 
 		if (restart)
@@ -486,85 +461,31 @@ bool difficultySelect(void)
 			restart = false;
 		}
 
-		service_SDL_events(true);
-
 		JE_mouseStart();
 		JE_showVGA();
 		JE_mouseReplace();
 
-		bool mouseMoved = false;
-		do
-		{
-			SDL_Delay(16);
-
-			Uint16 oldMouseX = mouse_x;
-			Uint16 oldMouseY = mouse_y;
-
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
-
-			NETWORK_KEEP_ALIVE();
-
-			mouseMoved = mouse_x != oldMouseX || mouse_y != oldMouseY;
-		} while (!(newkey || newmouse || mouseMoved));
+		waitUntilElapsed();
+		waitUntilHasInput(INPUT_ANY);
 
 		// Handle interaction.
-
-		if (menuItemsVisibleCount == 5)
-		{
-			const SDL_Scancode lordKeys[] = { SDL_SCANCODE_L, SDL_SCANCODE_O, SDL_SCANCODE_R, SDL_SCANCODE_D };
-
-			for (size_t i = 0; ; ++i)
-			{
-				if (i == COUNTOF(lordKeys))
-				{
-					menuItemsVisibleCount = 6;
-					break;
-				}
-
-				if (!keysactive[lordKeys[i]])
-					break;
-			}
-
-			if (newkey)
-			{
-				// Due to key jamming, holding down 4 keys simultaneous may not be possible, so an
-				// alternate input method is also provided.
-				if (lordProgress < COUNTOF(lordKeys) &&
-					lastkey_scan == lordKeys[lordProgress])
-				{
-					lordProgress += 1;
-
-					if (lordProgress == COUNTOF(lordKeys))
-						menuItemsVisibleCount = 6;
-				}
-				else
-				{
-					lordProgress = 0;
-				}
-			}
-		}
-		if (SDL_GetModState() & KMOD_SHIFT)
-		{
-			if (menuItemsVisibleCount == 4 && keysactive[SDL_SCANCODE_RIGHTBRACKET])
-				menuItemsVisibleCount = 5;
-			if (menuItemsVisibleCount == 3 && keysactive[SDL_SCANCODE_G])
-				menuItemsVisibleCount = 4;
-		}
 
 		bool action = false;
 		bool cancel = false;
 
-		if (mouseMoved || newmouse)
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_ANY, &mouseInput))
 		{
 			// Find menu item that was hovered or clicked.
 			for (size_t i = 0; i < menuItemsVisibleCount; ++i)
 			{
 				const int xMenuItem = xCenter - wMenuItem[i] / 2;
-				if (mouse_x >= xMenuItem && mouse_x < xMenuItem + wMenuItem[i])
+				if (mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem[i])
 				{
 					const int yMenuItem = yMenuItems + dyMenuItems * i;
-					if (mouse_y >= yMenuItem && mouse_y < yMenuItem + hMenuItem)
+					if (mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 					{
 						if (selectedIndex != i)
 						{
@@ -573,9 +494,9 @@ bool difficultySelect(void)
 							selectedIndex = i;
 						}
 
-						if (newmouse && lastmouse_but == SDL_BUTTON_LEFT &&
-						    lastmouse_x >= xMenuItem && lastmouse_x < xMenuItem + wMenuItem[i] &&
-						    lastmouse_y >= yMenuItem && lastmouse_y < yMenuItem + hMenuItem)
+						if (mouseInput.button == SDL_BUTTON_LEFT &&
+						    mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem[i] &&
+						    mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 						{
 							action = true;
 						}
@@ -584,20 +505,17 @@ bool difficultySelect(void)
 					}
 				}
 			}
-		}
 
-		if (newmouse)
-		{
-			if (lastmouse_but == SDL_BUTTON_RIGHT)
+			if (mouseInput.button == SDL_BUTTON_RIGHT)
 			{
 				JE_playSampleNum(S_SPRING);
 
 				cancel = true;
 			}
 		}
-		else if (newkey)
+		else if (keyboardGetInput(&keyboardInput))
 		{
-			switch (lastkey_scan)
+			switch (keyboardInput.scancode)
 			{
 			case SDL_SCANCODE_UP:
 			{
@@ -628,6 +546,60 @@ bool difficultySelect(void)
 				JE_playSampleNum(S_SPRING);
 
 				cancel = true;
+				break;
+			}
+			default:
+				break;
+			}
+
+			switch (menuItemsVisibleCount)
+			{
+			case 3:
+			{
+				if (keyboardInput.mod & KMOD_SHIFT &&
+				    keyboardInput.sym == SDLK_g)
+				{
+					menuItemsVisibleCount = 4;
+				}
+				break;
+			}
+			case 4:
+			{
+				if (keyboardInput.mod & KMOD_SHIFT &&
+				    keyboardInput.sym == SDLK_RIGHTBRACKET)
+				{
+					menuItemsVisibleCount = 5;
+				}
+				break;
+			}
+			case 5:
+			{
+				for (size_t i = 0; ; ++i)
+				{
+					if (i == COUNTOF(lordKeySymsDown))
+					{
+						menuItemsVisibleCount = 6;
+						break;
+					}
+
+					if (!lordKeySymsDown[i])
+						break;
+				}
+
+				// Due to key rollover, holding down 4 keys simultaneous may not always be possible,
+				// so allow for typing them sequentially as well.
+				if (lordProgress < COUNTOF(lordKeySyms) &&
+				    keyboardInput.sym == lordKeySyms[lordProgress])
+				{
+					lordProgress += 1;
+
+					if (lordProgress == COUNTOF(lordKeySyms))
+						menuItemsVisibleCount = 6;
+				}
+				else
+				{
+					lordProgress = 0;
+				}
 				break;
 			}
 			default:
@@ -694,12 +666,14 @@ bool timedBattleSelect(void)
 
 	for (; ; )
 	{
+		setFrameCount(1);
+
 		if (restart)
 		{
 			JE_loadPic(VGAScreen2, 2, false);
 
 			// Draw header.
-			draw_font_hv_shadow(VGAScreen2, xCenter, yMenuHeader, timed_battle_name[0], large_font, centered, 15, -3, false, 2);
+			drawFontHvShadowAligned(VGAScreen2, xCenter, yMenuHeader, timed_battle_name[0], FONT_LARGE, ALIGN_CENTER, 15, -3, false, 2);
 		}
 
 		// Restore background and header.
@@ -710,13 +684,13 @@ bool timedBattleSelect(void)
 		{
 			const char *const text = timed_battle_name[i + 1];
 
-			wMenuItem[i] = JE_textWidth(text, normal_font);
+			wMenuItem[i] = JE_textWidth(text, FONT_NORMAL);
 			const int x = xCenter - wMenuItem[i] / 2;
 			const int y = yMenuItems + dyMenuItems * i;
 
 			const bool selected = i == selectedIndex;
 
-			draw_font_hv_shadow(VGAScreen, x, y, text, normal_font, left_aligned, 15, -4 + (selected ? 2 : 0), false, 2);
+			drawFontHvShadow(VGAScreen, x, y, text, FONT_NORMAL, 15, -4 + (selected ? 2 : 0), false, 2);
 		}
 
 		if (restart)
@@ -728,43 +702,31 @@ bool timedBattleSelect(void)
 			restart = false;
 		}
 
-		service_SDL_events(true);
-
 		JE_mouseStart();
 		JE_showVGA();
 		JE_mouseReplace();
 
-		bool mouseMoved = false;
-		do
-		{
-			SDL_Delay(16);
-
-			Uint16 oldMouseX = mouse_x;
-			Uint16 oldMouseY = mouse_y;
-
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
-
-			NETWORK_KEEP_ALIVE();
-
-			mouseMoved = mouse_x != oldMouseX || mouse_y != oldMouseY;
-		} while (!(newkey || newmouse || mouseMoved));
+		waitUntilElapsed();
+		waitUntilHasInput(INPUT_ANY);
 
 		// Handle interaction.
 
 		bool action = false;
 		bool cancel = false;
 
-		if (mouseMoved || newmouse)
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_ANY, &mouseInput))
 		{
 			// Find menu item that was hovered or clicked.
 			for (size_t i = 0; i < menuItemsCount; ++i)
 			{
 				const int xMenuItem = xCenter - wMenuItem[i] / 2;
-				if (mouse_x >= xMenuItem && mouse_x < xMenuItem + wMenuItem[i])
+				if (mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem[i])
 				{
 					const int yMenuItem = yMenuItems + dyMenuItems * i;
-					if (mouse_y >= yMenuItem && mouse_y < yMenuItem + hMenuItem)
+					if (mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 					{
 						if (selectedIndex != i)
 						{
@@ -773,31 +735,24 @@ bool timedBattleSelect(void)
 							selectedIndex = i;
 						}
 
-						if (newmouse && lastmouse_but == SDL_BUTTON_LEFT &&
-						    lastmouse_x >= xMenuItem && lastmouse_x < xMenuItem + wMenuItem[i] &&
-						    lastmouse_y >= yMenuItem && lastmouse_y < yMenuItem + hMenuItem)
-						{
+						if (mouseInput.button == SDL_BUTTON_LEFT)
 							action = true;
-						}
 
 						break;
 					}
 				}
 			}
-		}
 
-		if (newmouse)
-		{
-			if (lastmouse_but == SDL_BUTTON_RIGHT)
+			if (mouseInput.button == SDL_BUTTON_RIGHT)
 			{
 				JE_playSampleNum(S_SPRING);
 
 				cancel = true;
 			}
 		}
-		else if (newkey)
+		else if (keyboardGetInput(&keyboardInput))
 		{
-			switch (lastkey_scan)
+			switch (keyboardInput.scancode)
 			{
 			case SDL_SCANCODE_UP:
 			{

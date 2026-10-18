@@ -25,6 +25,8 @@
  * Ken Silverman's official web site: "http://www.advsys.net/ken"
  */
 
+#include "loudness.h"
+
 #include <stdint.h>
 
 typedef uintptr_t	Bitu;

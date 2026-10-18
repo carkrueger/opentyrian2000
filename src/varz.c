@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,12 +22,10 @@
 #include "editship.h"
 #include "episodes.h"
 #include "joystick.h"
-#include "lds_play.h"
+#include "logging.h"
 #include "loudness.h"
 #include "mainint.h"
-#include "mouse.h"
 #include "mtrand.h"
-#include "network.h"
 #include "nortsong.h"
 #include "nortvars.h"
 #include "opentyr.h"
@@ -35,6 +33,8 @@
 #include "sprite.h"
 #include "vga256d.h"
 #include "video.h"
+
+#include <math.h>
 
 JE_integer tempDat, tempDat2, tempDat3;
 
@@ -197,8 +197,8 @@ JE_longint galagaLife;
 
 JE_boolean debug = false; /*Debug Mode*/
 Uint32 debugTime, lastDebugTime;
-JE_longint debugHistCount;
-JE_real debugHist;
+Uint32 debugHistCount;
+Uint32 debugHist;
 JE_word curLoc; /*Current Pixel location of background 1*/
 
 JE_boolean firstGameOver, gameLoaded, enemyStillExploding;
@@ -216,14 +216,6 @@ struct JE_MegaDataType3 megaData3;
 JE_byte flash;
 JE_shortint flashChange;
 JE_byte displayTime;
-
-/* Demo Stuff */
-bool play_demo = false, record_demo = false, stopped_demo = false;
-Uint8 demo_num = 0;
-FILE *demo_file = NULL;
-
-Uint8 demo_keys;
-Uint16 demo_keys_wait;
 
 /* Sound Effects Queue */
 JE_byte soundQueue[8]; /* [0..7] */
@@ -384,11 +376,14 @@ void JE_getShipInfo(void)
 
 JE_word JE_SGr(JE_word ship, Sprite2_array **ptr)
 {
-	const JE_word GR[15] /* [1..15] */ = {233, 157, 195, 271, 81, 0, 119, 5, 43, 81, 119, 157, 195, 233, 271};
+	const JE_word GR[15] /* [1..15] */ =
+	{
+		233, 157, 195, 271, 81, 0, 119, 5, 43, 81, 119, 157, 195, 233, 271
+	};
 
 	JE_word tempW = extraShips[(ship - 1) * 15];
 	if (tempW > 7)
-		*ptr = extraShapes;
+		*ptr = &extraShapes;
 
 	return GR[tempW-1];
 }
@@ -458,49 +453,26 @@ void JE_tyrianHalt(JE_byte code)
 	free_sprite2s(&destructSpriteSheet);
 
 	for (int i = 0; i < SOUND_COUNT; i++)
-	{
 		free(soundSamples[i]);
-	}
 
-	if (code != 9)
-	{
-		/*
-		TODO?
-		JE_drawANSI("exitmsg.bin");
-		JE_gotoXY(1,22);*/
-
-		JE_saveConfiguration();
-	}
-
-	/* endkeyboard; */
-
-	if (code == 9)
-	{
-		/* OutputString('call=file0002.EXE' + #0'); TODO? */
-	}
+	saveConfiguration();
+	saveSaves();
 
 	if (code == 5)
-	{
 		code = 0;
-	}
 
 	if (trentWin)
 	{
-		printf("\n"
-		       "\n"
-		       "\n"
-		       "\n"
-		       "Sleep well, Trent, you deserve the rest.\n"
-		       "You now have permission to borrow my ship on your next mission.\n"
-		       "\n"
-		       "Also, you might want to try out the YESXMAS parameter in Dos.\n"
-		       "  Type: File0001 YESXMAS\n"
-		       "\n"
-		       " Press a Key to Quit\n"
-		       "\n");
+		// TODO: Show on screen rather than logging.
+		logInfo("%s", "");
+		logInfo("Sleep well, Trent, you deserve the rest.");
+		logInfo("You now have permission to borrow my ship on your next mission.");
+		logInfo("%s", "");
+		logInfo("Also, you might want to try out the YESXMAS parameter in Dos.");
+		logInfo("  Type: File0001 YESXMAS");
+		logInfo("%s", "");
 	}
 
-	SDL_Quit();
 	exit(code);
 }
 
@@ -512,9 +484,9 @@ void JE_specialComplete(JE_byte playerNum, JE_byte specialType)
 		/*Weapon*/
 		case 1:
 			if (playerNum == 1)
-				b = player_shot_create(0, SHOT_SPECIAL2, player[0].x, player[0].y, mouseX, mouseY, special[specialType].wpn, playerNum);
+				b = player_shot_create(0, SHOT_SPECIAL2, player[0].x, player[0].y, player[0].mouseX, player[0].mouseY, special[specialType].wpn, playerNum);
 			else
-				b = player_shot_create(0, SHOT_SPECIAL2, player[1].x, player[1].y, mouseX, mouseY, special[specialType].wpn, playerNum);
+				b = player_shot_create(0, SHOT_SPECIAL2, player[1].x, player[1].y, player[0].mouseX, player[0].mouseY, special[specialType].wpn, playerNum);
 
 			shotRepeat[SHOT_SPECIAL] = shotRepeat[SHOT_SPECIAL2];
 			break;
@@ -629,28 +601,28 @@ void JE_specialComplete(JE_byte playerNum, JE_byte specialType)
 					break;
 			}
 			break;
-		case 12:
+		case 12:  // Invulnerability
 			player[playerNum-1].invulnerable_ticks = temp2 * 10;
 
 			if (superArcadeMode > 0 && superArcadeMode <= SA)
 			{
 				shotRepeat[SHOT_SPECIAL] = 250;
-				b = player_shot_create(0, SHOT_SPECIAL2, player[0].x, player[0].y, mouseX, mouseY, 707, 1);
+				b = player_shot_create(0, SHOT_SPECIAL2, player[0].x, player[0].y, player[0].mouseX, player[0].mouseY, 707, 1);
 				player[0].invulnerable_ticks = 100;
 			}
 			break;
-		case 13:
+		case 13:  // Repair Player 1
 			player[0].armor += temp2 / 4 + 1;
 
 			soundQueue[3] = S_POWERUP;
 			break;
-		case 14:
+		case 14:  // Repair Player 2
 			player[1].armor += temp2 / 4 + 1;
 
 			soundQueue[3] = S_POWERUP;
 			break;
 
-		case 17:  // spawn left or right sidekick
+		case 17:  // Spawn left or right sidekick
 			soundQueue[3] = S_POWERUP;
 
 			if (player[0].items.sidekick[LEFT_SIDEKICK] == special[specialType].wpn)
@@ -667,7 +639,7 @@ void JE_specialComplete(JE_byte playerNum, JE_byte specialType)
 			JE_drawOptions();
 			break;
 
-		case 18:  // spawn right sidekick
+		case 18:  // Spawn right sidekick
 			player[0].items.sidekick[RIGHT_SIDEKICK] = special[specialType].wpn;
 
 			JE_drawOptions();
@@ -818,12 +790,12 @@ void JE_doSpecialShot(JE_byte playerNum, uint *armor, uint *shield)
 			{
 				if (shotRepeat[SHOT_SPECIAL] == 0)
 				{
-					b = player_shot_create(0, SHOT_SPECIAL, player[0].x, player[0].y, mouseX, mouseY, specialWeaponWpn, playerNum);
+					b = player_shot_create(0, SHOT_SPECIAL, player[0].x, player[0].y, player[0].mouseX, player[0].mouseY, specialWeaponWpn, playerNum);
 				}
 			}
 			else
 			{
-				b = player_shot_create(0, SHOT_SPECIAL, mt_rand() % 280, mt_rand() % 180, mouseX, mouseY, specialWeaponWpn, playerNum);
+				b = player_shot_create(0, SHOT_SPECIAL, mt_rand() % 280, mt_rand() % 180, player[0].mouseX, player[0].mouseY, specialWeaponWpn, playerNum);
 			}
 
 			if (spraySpecial && b != MAX_PWEAPON)

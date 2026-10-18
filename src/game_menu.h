@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,7 +39,7 @@ void JE_drawLines(SDL_Surface *surface, JE_boolean dark);
 void JE_drawDots(void);
 void JE_drawPlanet(JE_byte planetNum);
 void draw_ship_illustration(void);
-void JE_scaleBitmap(SDL_Surface *dst, const SDL_Surface *src, int x1, int y1, int x2, int y2);
+void JE_scaleBitmap(SDL_Surface *dst, SDL_Surface *src, int x1, int y1, int x2, int y2);
 void JE_initWeaponView(void);
 void JE_computeDots(void);
 JE_integer JE_partWay(JE_integer start, JE_integer finish, JE_byte dots, JE_byte dist);
@@ -48,7 +48,7 @@ void JE_drawMainMenuHelpText(void);
 JE_boolean JE_saveRequest(JE_byte slot, const char *savename);
 JE_boolean JE_quitRequest(void);
 void JE_genItemMenu(JE_byte itemnum);
-void JE_scaleInPicture(SDL_Surface *dst, const SDL_Surface *src);
+void JE_scaleInPicture(SDL_Surface *dst, SDL_Surface *src);
 void JE_drawScore(void);
 void JE_menuFunction(JE_byte select);
 void JE_drawShipSpecs(SDL_Surface *, SDL_Surface *);

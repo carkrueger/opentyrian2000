@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -157,9 +157,9 @@ extern JE_EnemyDatType enemyDat;
 extern JE_byte initial_episode_num, episodeNum;
 extern JE_boolean episodeAvail[EPISODE_MAX];
 
-extern char episode_file[13], cube_file[13];
+extern char episodeFilename[13];
+extern char cubeFilename[13];
 
-extern JE_longint episode1DataLoc;
 extern JE_boolean bonusLevel;
 extern JE_boolean jumpBackToEpisode1;
 

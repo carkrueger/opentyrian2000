@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -19,7 +19,7 @@
 #ifndef VARZ_H
 #define VARZ_H
 
-#include "episodes.h"
+#include "lvlmast.h"
 #include "opentyr.h"
 #include "player.h"
 #include "sprite.h"
@@ -238,8 +238,8 @@ extern JE_word galagaShotFreq;
 extern JE_longint galagaLife;
 extern JE_boolean debug;
 extern Uint32 debugTime, lastDebugTime;
-extern JE_longint debugHistCount;
-extern JE_real debugHist;
+extern Uint32 debugHistCount;
+extern Uint32 debugHist;
 extern JE_word curLoc;
 extern JE_boolean firstGameOver, gameLoaded, enemyStillExploding;
 extern JE_word totalEnemy;
@@ -250,13 +250,6 @@ extern struct JE_MegaDataType3 megaData3;
 extern JE_byte flash;
 extern JE_shortint flashChange;
 extern JE_byte displayTime;
-
-extern bool play_demo, record_demo, stopped_demo;
-extern Uint8 demo_num;
-extern FILE *demo_file;
-
-extern Uint8 demo_keys;
-extern Uint16 demo_keys_wait;
 
 extern JE_byte soundQueue[8];
 extern JE_boolean enemyContinualDamage;

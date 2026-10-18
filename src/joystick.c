@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -20,16 +20,15 @@
 
 #include "config.h"
 #include "config_file.h"
-#include "file.h"
 #include "keyboard.h"
+#include "logging.h"
+#include "network.h"
 #include "nortsong.h"
 #include "opentyr.h"
-#include "params.h"
-#include "varz.h"
-#include "video.h"
 
 #include <assert.h>
 #include <ctype.h>
+#include <math.h>
 #include <string.h>
 
 int joystick_axis_threshold(int j, int value);
@@ -262,9 +261,9 @@ void init_joysticks(void)
 	if (ignore_joystick)
 		return;
 	
-	if (SDL_InitSubSystem(SDL_INIT_JOYSTICK))
+	if (SDL_InitSubSystem(SDL_INIT_JOYSTICK) != 0)
 	{
-		fprintf(stderr, "warning: failed to initialize joystick system: %s\n", SDL_GetError());
+		logWarn("Failed to initialize SDL joystick: %s", SDL_GetError());
 		ignore_joystick = true;
 		return;
 	}
@@ -281,11 +280,11 @@ void init_joysticks(void)
 		joystick[j].handle = SDL_JoystickOpen(j);
 		if (joystick[j].handle != NULL)
 		{
-			printf("joystick detected: %s ", SDL_JoystickName(joystick[j].handle));
-			printf("(%d axes, %d buttons, %d hats)\n", 
-			       SDL_JoystickNumAxes(joystick[j].handle),
-			       SDL_JoystickNumButtons(joystick[j].handle),
-			       SDL_JoystickNumHats(joystick[j].handle));
+			logInfo("Joystick detected: %s (%d axes, %d buttons, %d hats)",
+				SDL_JoystickName(joystick[j].handle),
+				SDL_JoystickNumAxes(joystick[j].handle),
+				SDL_JoystickNumButtons(joystick[j].handle),
+				SDL_JoystickNumHats(joystick[j].handle));
 			
 			if (!load_joystick_assignments(&opentyrian_config, j))
 				reset_joystick_assignments(j);
@@ -293,7 +292,7 @@ void init_joysticks(void)
 	}
 	
 	if (joysticks == 0)
-		printf("no joysticks detected\n");
+		logInfo("No joysticks detected.");
 }
 
 // deinitializes SDL joystick system and saves joystick assignments
@@ -548,12 +547,16 @@ bool detect_joystick_assignment(int j, Joystick_assignment *assignment)
 	
 	bool detected = false;
 	
-	do
+	while (true)
 	{
-		setDelay(1);
+		setFrameCount(1);
 		
-		SDL_JoystickUpdate();
-		
+		NETWORK_KEEP_ALIVE();
+
+		delayUntilElapsed();
+
+		handleSdlEvents();
+
 		for (int i = 0; i < axes; ++i)
 		{
 			Sint16 temp = SDL_JoystickGetAxis(joystick[j].handle, i);
@@ -611,11 +614,9 @@ bool detect_joystick_assignment(int j, Joystick_assignment *assignment)
 			}
 		}
 		
-		service_SDL_events(true);
-		JE_showVGA();
-		
-		wait_delay();
-	} while (!detected && !newkey && !newmouse);
+		if (detected || hasInput(INPUT_NO_MOTION))
+			break;
+	}
 	
 	free(axis);
 	free(button);

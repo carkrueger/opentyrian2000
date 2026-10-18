@@ -1,0 +1,57 @@
+name: macOS
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write        # needed to attach assets on release events
+
+jobs:
+  build:
+    name: macOS (universal .app)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # git describe --tags for the version string
+      - name: Install build dependencies
+        run: brew install pkgconf sdl2 sdl2_net
+      - name: Compile check (debug, -Werror, Homebrew SDL2)
+        run: make -j"$(sysctl -n hw.ncpu)" debug
+      - name: Smoke test
+        run: ./opentyrian2000 --help
+      - name: Cache game data
+        uses: actions/cache@v6
+        with:
+          path: data
+          key: tyrian2000-data-v1
+      - name: Build OpenTyrian2000.app (universal, bundled SDL2 + game data)
+        run: ./make_macos.sh
+      - name: Verify the bundle
+        run: |
+          lipo -archs build/OpenTyrian2000.app/Contents/MacOS/opentyrian2000 | grep -q "x86_64 arm64"
+          test -f build/OpenTyrian2000.app/Contents/Resources/data/tyrian1.lvl
+          test -d build/OpenTyrian2000.app/Contents/Frameworks/SDL2.framework
+          # the binary must not reference Homebrew - only the bundled framework
+          if otool -L build/OpenTyrian2000.app/Contents/MacOS/opentyrian2000 | grep -q /opt/homebrew; then exit 1; fi
+      - name: Smoke test the bundle
+        run: build/OpenTyrian2000.app/Contents/MacOS/opentyrian2000 --help
+      - name: Zip app (preserving symlinks)
+        run: cd build && zip -r -y opentyrian2000-macos-universal.zip OpenTyrian2000.app
+      - uses: actions/upload-artifact@v7
+        with:
+          name: opentyrian2000-macos-universal
+          path: build/opentyrian2000-macos-universal.zip
+      - name: Attach to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          asset="opentyrian2000-$tag-macos-universal.zip"
+          mv build/opentyrian2000-macos-universal.zip "$asset"
+          gh release upload "$tag" "$asset" --clobber

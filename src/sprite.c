@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -19,6 +19,7 @@
 #include "sprite.h"
 
 #include "file.h"
+#include "logging.h"
 #include "opentyr.h"
 #include "video.h"
 
@@ -47,41 +48,55 @@ Sprite2_array spriteSheetT2000;
 void load_sprites_file(unsigned int table, const char *filename)
 {
 	free_sprites(table);
-	
-	FILE *f = dir_fopen_die(data_dir(), filename, "rb");
-	
-	load_sprites(table, f);
-	
-	fclose(f);
+
+	File file = dataFileOpen(filename, "rb");
+	if (file.error)
+	{
+		logFatal("Failed to open file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	load_sprites(table, &file);
+
+	if (file.error)
+	{
+		logFatal("Failed to read from file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	fileClose(&file);
 }
 
-void load_sprites(unsigned int table, FILE *f)
+void load_sprites(unsigned int table, File *file)
 {
 	free_sprites(table);
 	
-	Uint16 temp;
-	fread_u16_die(&temp, 1, f);
+	Uint16 count = fileReadU16(file);
+	assert(count <= SPRITES_PER_TABLE_MAX);
+	count = MIN(count, SPRITES_PER_TABLE_MAX);
 	
-	sprite_table[table].count = temp;
+	sprite_table[table].count = count;
 	
-	assert(sprite_table[table].count <= SPRITES_PER_TABLE_MAX);
-	
-	for (unsigned int i = 0; i < sprite_table[table].count; ++i)
+	for (size_t i = 0; i < sprite_table[table].count; ++i)
 	{
-		Sprite * const cur_sprite = sprite(table, i);
+		Sprite *sprite_ = sprite(table, i);
 
-		bool populated;
-		fread_bool_die(&populated, f);
-		if (!populated) // sprite is empty
-			continue;
-		
-		fread_u16_die(&cur_sprite->width,  1, f);
-		fread_u16_die(&cur_sprite->height, 1, f);
-		fread_u16_die(&cur_sprite->size,   1, f);
-		
-		cur_sprite->data = malloc(cur_sprite->size);
-		
-		fread_u8_die(cur_sprite->data, cur_sprite->size, f);
+		bool populated = fileReadBool(file);
+		if (!populated)
+		{
+			sprite_->width  = 0;
+			sprite_->height = 0;
+			sprite_->size   = 0;
+			sprite_->data   = NULL;
+		}
+		else
+		{
+			sprite_->width  = fileReadU16(file);
+			sprite_->height = fileReadU16(file);
+			sprite_->size   = fileReadU16(file);
+			sprite_->data   = malloc(sprite_->size);
+			fileReadExactly(file, sprite_->data, sprite_->size);
+		}
 	}
 }
 
@@ -486,24 +501,35 @@ void JE_loadCompShapes(Sprite2_array *sprite2s, char s)
 {
 	free_sprite2s(sprite2s);
 
-	char buffer[20];
-	snprintf(buffer, sizeof(buffer), "newsh%c.shp", tolower((unsigned char)s));
+	char filename[11];
+	snprintf(filename, sizeof filename, "newsh%c.shp", tolower(s));
 	
-	FILE *f = dir_fopen_die(data_dir(), buffer, "rb");
+	File file = dataFileOpen(filename, "rb");
+	if (file.error)
+	{
+		logFatal("Failed to open file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	sprite2s->size = fileGetLength(&file);
 	
-	sprite2s->size = ftell_eof(f);
-	
-	JE_loadCompShapesB(sprite2s, f);
-	
-	fclose(f);
+	JE_loadCompShapesB(sprite2s, &file);
+
+	if (file.error)
+	{
+		logFatal("Failed to read from file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	fileClose(&file);
 }
 
-void JE_loadCompShapesB(Sprite2_array *sprite2s, FILE *f)
+void JE_loadCompShapesB(Sprite2_array *sprite2s, File *file)
 {
 	assert(sprite2s->data == NULL);
 
 	sprite2s->data = malloc(sprite2s->size);
-	fread_u8_die(sprite2s->data, sprite2s->size, f);
+	fileReadExactly(file, sprite2s->data, sprite2s->size);
 }
 
 void free_sprite2s(Sprite2_array *sprite2s)
@@ -792,62 +818,76 @@ void blit_sprite2x2_filter_clip(SDL_Surface *surface, int x, int y, Sprite2_arra
 	blit_sprite2_filter_clip(surface, x + 12, y + 14, sprite2s, index + 20, filter);
 }
 
-void JE_loadMainShapeTables(const char *shpfile)
+void JE_loadMainShapeTables(const char *filename)
 {
 	enum { SHP_NUM = 13 };
 	
-	FILE *f = dir_fopen_die(data_dir(), shpfile, "rb");
+	File file = dataFileOpen(filename, "rb");
+	if (file.error)
+	{
+		logFatal("Failed to open file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	long positions[SHP_NUM + 1];
+
+	Uint16 count = fileReadU16(&file);
+	assert(count == SHP_NUM);
+	count = MIN(count, SHP_NUM);
+
+	for (size_t i = 0; i < count; ++i)
+		positions[i] = fileReadU32(&file);
+
+	long fileLength = fileGetLength(&file);
+	for (size_t i = count; i < COUNTOF(positions); ++i)
+		positions[i] = fileLength;
 	
-	JE_word shpNumb;
-	JE_longint shpPos[SHP_NUM + 1]; // +1 for storing file length
-	
-	fread_u16_die(&shpNumb, 1, f);
-	assert(shpNumb + 1u == COUNTOF(shpPos));
-	
-	fread_s32_die(shpPos, shpNumb, f);
-	
-	fseek(f, 0, SEEK_END);
-	for (unsigned int i = shpNumb; i < COUNTOF(shpPos); ++i)
-		shpPos[i] = ftell(f);
-	
-	int i;
+	size_t i;
+
 	// fonts, interface, option sprites
 	for (i = 0; i < 7; i++)
 	{
-		fseek(f, shpPos[i], SEEK_SET);
-		load_sprites(i, f);
+		fileSetPosition(&file, positions[i]);
+
+		load_sprites(i, &file);
 	}
 	
 	// player shot sprites
-	spriteSheet8.size = shpPos[i + 1] - shpPos[i];
-	JE_loadCompShapesB(&spriteSheet8, f);
+	spriteSheet8.size = positions[i + 1] - positions[i];
+	JE_loadCompShapesB(&spriteSheet8, &file);
 	i++;
 	
 	// player ship sprites
-	spriteSheet9.size = shpPos[i + 1] - shpPos[i];
-	JE_loadCompShapesB(&spriteSheet9 , f);
+	spriteSheet9.size = positions[i + 1] - positions[i];
+	JE_loadCompShapesB(&spriteSheet9, &file);
 	i++;
 	
 	// power-up sprites
-	spriteSheet10.size = shpPos[i + 1] - shpPos[i];
-	JE_loadCompShapesB(&spriteSheet10, f);
+	spriteSheet10.size = positions[i + 1] - positions[i];
+	JE_loadCompShapesB(&spriteSheet10, &file);
 	i++;
 	
 	// coins, datacubes, etc sprites
-	spriteSheet11.size = shpPos[i + 1] - shpPos[i];
-	JE_loadCompShapesB(&spriteSheet11, f);
+	spriteSheet11.size = positions[i + 1] - positions[i];
+	JE_loadCompShapesB(&spriteSheet11, &file);
 	i++;
 	
 	// more player shot sprites
-	spriteSheet12.size = shpPos[i + 1] - shpPos[i];
-	JE_loadCompShapesB(&spriteSheet12, f);
+	spriteSheet12.size = positions[i + 1] - positions[i];
+	JE_loadCompShapesB(&spriteSheet12, &file);
 	i++;
 
 	// tyrian 2000 ship sprites
-	spriteSheetT2000.size = shpPos[i + 1] - shpPos[i];
-	JE_loadCompShapesB(&spriteSheetT2000, f);
-	
-	fclose(f);
+	spriteSheetT2000.size = positions[i + 1] - positions[i];
+	JE_loadCompShapesB(&spriteSheetT2000, &file);
+
+	if (file.error)
+	{
+		logFatal("Failed to read from file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	fileClose(&file);
 }
 
 void free_main_shape_tables(void)

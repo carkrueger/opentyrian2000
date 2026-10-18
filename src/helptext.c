@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -19,14 +19,14 @@
 #include "helptext.h"
 
 #include "config.h"
-#include "episodes.h"
 #include "file.h"
 #include "fonthand.h"
+#include "logging.h"
 #include "menus.h"
 #include "opentyr.h"
-#include "video.h"
 
 #include <assert.h>
+#include <stdlib.h>
 #include <string.h>
 
 const JE_byte menuHelp[MENU_MAX][11] = /* [1..maxmenu, 1..11] */
@@ -47,11 +47,6 @@ const JE_byte menuHelp[MENU_MAX][11] = /* [1..maxmenu, 1..11] */
 	{  4, 34,  3,  5,                    0, 0, 0, 0, 0, 0, 0 },
 	{ 35, 35, 35, 36, 12,                   0, 0, 0, 0, 0, 0 }
 };
-
-JE_byte verticalHeight = 7;
-JE_byte helpBoxColor = 12;
-JE_byte helpBoxBrightness = 1;
-JE_byte helpBoxShadeType = FULL_SHADE;
 
 char helpTxt[39][231];                                                   /* [1..39] of string [230] */
 char pName[21][16];                                                      /* [1..21] of string [15] */
@@ -96,36 +91,26 @@ static void decrypt_string(char *s, size_t len)
 	}
 }
 
-void read_encrypted_pascal_string(char *s, size_t size, FILE *f)
+void readEncryptedString(File *file, char *dst, size_t size)
 {
-	Uint8 len;
-	char buffer[255];
+	Uint8 buffer[255];
 
-	fread_u8_die(&len, 1, f);
-	fread_die(buffer, 1, len, f);
+	Uint8 len = fileReadU8(file);
+	fileReadExactly(file, buffer, len);
 
 	if (size == 0)
 		return;
 
-	decrypt_string(buffer, len);
+	decrypt_string((char *)buffer, len);
 
 	assert(len < size);
-
 	len = MIN(len, size - 1);
-	memcpy(s, buffer, len);
-	s[len] = '\0';
+
+	memcpy(dst, buffer, len);
+	dst[len] = '\0';
 }
 
-void skip_pascal_string(FILE *f)
-{
-	Uint8 len;
-	char buffer[255];
-
-	fread_u8_die(&len, 1, f);
-	fread_die(buffer, 1, len, f);
-}
-
-void JE_helpBox(SDL_Surface *screen,  int x, int y, const char *message, unsigned int boxwidth)
+void JE_helpBox(SDL_Surface *screen,  int x, int y, const char *message, JE_byte boxWidth, JE_byte verticalHeight, JE_byte color, JE_byte brightness, JE_byte shadeType)
 {
 	JE_byte startpos, endpos, pos;
 	JE_boolean endstring;
@@ -154,7 +139,7 @@ void JE_helpBox(SDL_Surface *screen,  int x, int y, const char *message, unsigne
 				if (pos == strlen(message))
 				{
 					endstring = true;
-					if ((unsigned)(pos - startpos) < boxwidth)
+					if ((unsigned)(pos - startpos) < boxWidth)
 					{
 						endpos = pos + 1;
 					}
@@ -162,10 +147,10 @@ void JE_helpBox(SDL_Surface *screen,  int x, int y, const char *message, unsigne
 
 			} while (!(message[pos-1] == ' ' || endstring));
 
-		} while (!((unsigned)(pos - startpos) > boxwidth || endstring));
+		} while (!((unsigned)(pos - startpos) > boxWidth || endstring));
 
 		SDL_strlcpy(substring, message + startpos - 1, MIN((size_t)(endpos - startpos + 1), sizeof(substring)));
-		JE_textShade(screen, x, y, substring, helpBoxColor, helpBoxBrightness, helpBoxShadeType);
+		JE_textShade(screen, x, y, substring, color, brightness, shadeType);
 
 		y += verticalHeight;
 
@@ -173,61 +158,69 @@ void JE_helpBox(SDL_Surface *screen,  int x, int y, const char *message, unsigne
 
 	if (endpos != pos + 1)
 	{
-		JE_textShade(screen, x, y, message + endpos, helpBoxColor, helpBoxBrightness, helpBoxShadeType);
+		JE_textShade(screen, x, y, message + endpos, color, brightness, shadeType);
 	}
-
-	helpBoxColor = 12;
-	helpBoxShadeType = FULL_SHADE;
 }
 
-void JE_HBox(SDL_Surface *screen, int x, int y, unsigned int  messagenum, unsigned int boxwidth)
+void JE_HBox(SDL_Surface *screen, int x, int y, JE_byte messageNum, JE_byte boxWidth, JE_byte verticalHeight, JE_byte color, JE_byte brightness)
 {
-	JE_helpBox(screen, x, y, helpTxt[messagenum-1], boxwidth);
+	JE_helpBox(screen, x, y, helpTxt[messageNum-1], boxWidth, verticalHeight, color, brightness, FULL_SHADE);
 }
 
 void JE_loadHelpText(void)
 {
-	const unsigned int menuInt_entries[MENU_MAX + 1] = { -1, 7, 9, 9, -1, -1, 11, -1, -1, -1, 6, 4, 7, 7, 5, 6 };
-	const unsigned int setup_entries[10] = {10, 5, 4, 4, 5, 7, 7, 21, 3, 3};
+	static const unsigned int menuInt_entries[MENU_MAX + 1] =
+	{
+		-1, 7, 9, 9, -1, -1, 11, -1, -1, -1, 6, 4, 7, 7, 5, 6
+	};
+	static const unsigned int setup_entries[10] = { 10, 5, 4, 4, 5, 7, 7, 21, 3, 3 };
 	
-	FILE *f = dir_fopen_die(data_dir(), "tyrian.hdt", "rb");
-	fread_s32_die(&episode1DataLoc, 1, f);
+	const char *filename = "tyrian.hdt";
+
+	File file = dataFileOpen(filename, "rb");
+	if (file.error)
+	{
+		logFatal("Failed to open file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	(void)fileReadU32(&file);  // Episode 1-3 item data position
 
 	/*Online Help*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(helpTxt); ++i)
-		read_encrypted_pascal_string(helpTxt[i], sizeof(helpTxt[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(helpTxt); ++i)
+		readEncryptedString(&file, helpTxt[i], sizeof helpTxt[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Planet names*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(pName); ++i)
-		read_encrypted_pascal_string(pName[i], sizeof(pName[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(pName); ++i)
+		readEncryptedString(&file, pName[i], sizeof pName[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Miscellaneous text*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(miscText); ++i)
-		read_encrypted_pascal_string(miscText[i], sizeof(miscText[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(miscText); ++i)
+		readEncryptedString(&file, miscText[i], sizeof miscText[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Little Miscellaneous text*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(miscTextB); ++i)
-		read_encrypted_pascal_string(miscTextB[i], sizeof(miscTextB[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(miscTextB); ++i)
+		readEncryptedString(&file, miscTextB[i], sizeof miscTextB[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Key names*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < menuInt_entries[6]; ++i)
-		read_encrypted_pascal_string(menuInt[6][i], sizeof(menuInt[6][i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < menuInt_entries[6]; ++i)
+		readEncryptedString(&file, menuInt[6][i], sizeof menuInt[6][i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Main Menu*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(menuText); ++i)
-		read_encrypted_pascal_string(menuText[i], sizeof(menuText[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(menuText); ++i)
+		readEncryptedString(&file, menuText[i], sizeof menuText[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	// OpenTyrian2000 Override
 	strcpy(menuText[6], menuText[5]);
@@ -235,219 +228,236 @@ void JE_loadHelpText(void)
 	strcpy(menuText[4], "Setup");
 
 	/*Event text*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(outputs); ++i)
-		read_encrypted_pascal_string(outputs[i], sizeof(outputs[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(outputs); ++i)
+		readEncryptedString(&file, outputs[i], sizeof outputs[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Help topics*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(topicName); ++i)
-		read_encrypted_pascal_string(topicName[i], sizeof(topicName[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(topicName); ++i)
+		readEncryptedString(&file, topicName[i], sizeof topicName[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Main Menu Help*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(mainMenuHelp); ++i)
-		read_encrypted_pascal_string(mainMenuHelp[i], sizeof(mainMenuHelp[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(mainMenuHelp); ++i)
+		readEncryptedString(&file, mainMenuHelp[i], sizeof mainMenuHelp[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Menu 1 - Main*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < menuInt_entries[1]; ++i)
-		read_encrypted_pascal_string(menuInt[1][i], sizeof(menuInt[1][i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < menuInt_entries[1]; ++i)
+		readEncryptedString(&file, menuInt[1][i], sizeof menuInt[1][i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Menu 2 - Items*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < menuInt_entries[2]; ++i)
-		read_encrypted_pascal_string(menuInt[2][i], sizeof(menuInt[2][i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < menuInt_entries[2]; ++i)
+		readEncryptedString(&file, menuInt[2][i], sizeof menuInt[2][i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Menu 3 - Options*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < menuInt_entries[3]; ++i)
-		read_encrypted_pascal_string(menuInt[3][i], sizeof(menuInt[3][i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < menuInt_entries[3]; ++i)
+		readEncryptedString(&file, menuInt[3][i], sizeof menuInt[3][i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*InGame Menu*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(inGameText); ++i)
-		read_encrypted_pascal_string(inGameText[i], sizeof(inGameText[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(inGameText); ++i)
+		readEncryptedString(&file, inGameText[i], sizeof inGameText[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Detail Level*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(detailLevel); ++i)
-		read_encrypted_pascal_string(detailLevel[i], sizeof(detailLevel[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(detailLevel); ++i)
+		readEncryptedString(&file, detailLevel[i], sizeof detailLevel[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Game speed text*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(gameSpeedText); ++i)
-		read_encrypted_pascal_string(gameSpeedText[i], sizeof(gameSpeedText[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(gameSpeedText); ++i)
+		readEncryptedString(&file, gameSpeedText[i], sizeof gameSpeedText[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	// episode names
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(episode_name); ++i)
-		read_encrypted_pascal_string(episode_name[i], sizeof(episode_name[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(episode_name); ++i)
+		readEncryptedString(&file, episode_name[i], sizeof episode_name[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	// difficulty names
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(difficulty_name); ++i)
-		read_encrypted_pascal_string(difficulty_name[i], sizeof(difficulty_name[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(difficulty_name); ++i)
+		readEncryptedString(&file, difficulty_name[i], sizeof difficulty_name[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	// gameplay mode names
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(gameplay_name); ++i)
-		read_encrypted_pascal_string(gameplay_name[i], sizeof(gameplay_name[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(gameplay_name); ++i)
+		readEncryptedString(&file, gameplay_name[i], sizeof gameplay_name[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Menu 10 - 2Player Main*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < menuInt_entries[10]; ++i)
-		read_encrypted_pascal_string(menuInt[10][i], sizeof(menuInt[10][i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < menuInt_entries[10]; ++i)
+		readEncryptedString(&file, menuInt[10][i], sizeof menuInt[10][i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Input Devices*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(inputDevices); ++i)
-		read_encrypted_pascal_string(inputDevices[i], sizeof(inputDevices[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(inputDevices); ++i)
+		readEncryptedString(&file, inputDevices[i], sizeof inputDevices[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Network text*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(networkText); ++i)
-		read_encrypted_pascal_string(networkText[i], sizeof(networkText[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(networkText); ++i)
+		readEncryptedString(&file, networkText[i], sizeof networkText[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Menu 11 - 2Player Network*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < menuInt_entries[11]; ++i)
-		read_encrypted_pascal_string(menuInt[11][i], sizeof(menuInt[11][i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < menuInt_entries[11]; ++i)
+		readEncryptedString(&file, menuInt[11][i], sizeof menuInt[11][i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*HighScore Difficulty Names*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(difficultyNameB); ++i)
-		read_encrypted_pascal_string(difficultyNameB[i], sizeof(difficultyNameB[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(difficultyNameB); ++i)
+		readEncryptedString(&file, difficultyNameB[i], sizeof difficultyNameB[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Menu 12 - Network Options*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < menuInt_entries[12]; ++i)
-		read_encrypted_pascal_string(menuInt[12][i], sizeof(menuInt[12][i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < menuInt_entries[12]; ++i)
+		readEncryptedString(&file, menuInt[12][i], sizeof menuInt[12][i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Menu 13 - Joystick*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < menuInt_entries[13]; ++i)
-		read_encrypted_pascal_string(menuInt[13][i], sizeof(menuInt[13][i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < menuInt_entries[13]; ++i)
+		readEncryptedString(&file, menuInt[13][i], sizeof menuInt[13][i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Joystick Button Assignments*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(joyButtonNames); ++i)
-		read_encrypted_pascal_string(joyButtonNames[i], sizeof(joyButtonNames[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(joyButtonNames); ++i)
+		readEncryptedString(&file, joyButtonNames[i], sizeof joyButtonNames[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*SuperShips - For Super Arcade Mode*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(superShips); ++i)
-		read_encrypted_pascal_string(superShips[i], sizeof(superShips[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(superShips); ++i)
+		readEncryptedString(&file, superShips[i], sizeof superShips[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*SuperShips - For Super Arcade Mode*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(specialName); ++i)
-		read_encrypted_pascal_string(specialName[i], sizeof(specialName[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(specialName); ++i)
+		readEncryptedString(&file, specialName[i], sizeof specialName[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Secret DESTRUCT game*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(destructHelp); ++i)
-		read_encrypted_pascal_string(destructHelp[i], sizeof(destructHelp[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(destructHelp); ++i)
+		readEncryptedString(&file, destructHelp[i], sizeof destructHelp[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Secret DESTRUCT weapons*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(weaponNames); ++i)
-		read_encrypted_pascal_string(weaponNames[i], sizeof(weaponNames[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(weaponNames); ++i)
+		readEncryptedString(&file, weaponNames[i], sizeof weaponNames[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Secret DESTRUCT modes*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(destructModeName); ++i)
-		read_encrypted_pascal_string(destructModeName[i], sizeof(destructModeName[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(destructModeName); ++i)
+		readEncryptedString(&file, destructModeName[i], sizeof destructModeName[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*NEW: Ship Info*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(shipInfo); ++i)
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(shipInfo); ++i)
 	{
-		read_encrypted_pascal_string(shipInfo[i][0], sizeof(shipInfo[i][0]), f);
-		read_encrypted_pascal_string(shipInfo[i][1], sizeof(shipInfo[i][1]), f);
+		readEncryptedString(&file, shipInfo[i][0], sizeof shipInfo[i][0]);
+		readEncryptedString(&file, shipInfo[i][1], sizeof shipInfo[i][1]);
 	}
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Menu 14 - Super Tyrian*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < menuInt_entries[14]; ++i)
-		read_encrypted_pascal_string(menuInt[14][i], sizeof(menuInt[14][i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < menuInt_entries[14]; ++i)
+		readEncryptedString(&file, menuInt[14][i], sizeof menuInt[14][i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Timed Battle Planets*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(timed_battle_name); ++i)
-		read_encrypted_pascal_string(timed_battle_name[i], sizeof(timed_battle_name[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(timed_battle_name); ++i)
+		readEncryptedString(&file, timed_battle_name[i], sizeof timed_battle_name[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Setup entries, skipped since we don't use them*/
-	for (unsigned int entry = 0; entry < COUNTOF(setup_entries); ++entry)
+	for (size_t entry = 0; entry < COUNTOF(setup_entries); ++entry)
 	{
-		skip_pascal_string(f);
-		for (unsigned int i = 0; i < setup_entries[entry]; ++i)
-			skip_pascal_string(f);
-		skip_pascal_string(f);
+		readEncryptedString(&file, NULL, 0);
+		for (size_t i = 0; i < setup_entries[entry]; ++i)
+			readEncryptedString(&file, NULL, 0);
+		readEncryptedString(&file, NULL, 0);
 	}
 
 	/*Menu 15 - Mouse Settings*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < menuInt_entries[15]; ++i)
-		read_encrypted_pascal_string(menuInt[15][i], sizeof(menuInt[15][i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < menuInt_entries[15]; ++i)
+		readEncryptedString(&file, menuInt[15][i], sizeof menuInt[15][i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Tyrian Licensing Info*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(licensingInfo); ++i)
-		read_encrypted_pascal_string(licensingInfo[i], sizeof(licensingInfo[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(licensingInfo); ++i)
+		readEncryptedString(&file, licensingInfo[i], sizeof licensingInfo[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Default High Score Names*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(defaultHighScoreNames); ++i)
-		read_encrypted_pascal_string(defaultHighScoreNames[i], sizeof(defaultHighScoreNames[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(defaultHighScoreNames); ++i)
+		readEncryptedString(&file, defaultHighScoreNames[i], sizeof defaultHighScoreNames[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Default Team Names*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(defaultTeamNames); ++i)
-		read_encrypted_pascal_string(defaultTeamNames[i], sizeof(defaultTeamNames[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(defaultTeamNames); ++i)
+	{
+		// Some team names are padded with trailing spaces beyond the field width.
+		char teamName[256];
+		readEncryptedString(&file, teamName, sizeof teamName);
+
+		size_t teamNameLen = strlen(teamName);
+		while (teamNameLen > 0 && teamName[teamNameLen - 1] == ' ')
+			--teamNameLen;
+		teamName[teamNameLen] = '\0';
+
+		SDL_strlcpy(defaultTeamNames[i], teamName, sizeof defaultTeamNames[i]);
+	}
+	readEncryptedString(&file, NULL, 0);
 
 	/*Ordering Info?*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(orderingInfo); ++i)
-		read_encrypted_pascal_string(orderingInfo[i], sizeof(orderingInfo[i]), f);
-	skip_pascal_string(f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(orderingInfo); ++i)
+		readEncryptedString(&file, orderingInfo[i], sizeof orderingInfo[i]);
+	readEncryptedString(&file, NULL, 0);
 
 	/*Super Tyrian text*/
-	skip_pascal_string(f);
-	for (unsigned int i = 0; i < COUNTOF(superTyrianText); ++i)
-		read_encrypted_pascal_string(superTyrianText[i], sizeof(superTyrianText[i]), f);
+	readEncryptedString(&file, NULL, 0);
+	for (size_t i = 0; i < COUNTOF(superTyrianText); ++i)
+		readEncryptedString(&file, superTyrianText[i], sizeof superTyrianText[i]);
 
-	fclose(f);
+	if (file.error)
+	{
+		logFatal("Failed to read from file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	fileClose(&file);
 }

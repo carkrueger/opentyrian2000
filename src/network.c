@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -20,12 +20,11 @@
 
 #include "episodes.h"
 #include "fonthand.h"
-#include "helptext.h"
-#include "joystick.h"
 #include "keyboard.h"
-#include "mainint.h"
-#include "nortvars.h"
+#include "logging.h"
+#include "nortsong.h"
 #include "opentyr.h"
+#include "palette.h"
 #include "picload.h"
 #include "sprite.h"
 #include "varz.h"
@@ -147,7 +146,7 @@ static bool network_send_no_ack(int len)
 
 	if (!SDLNet_UDP_Send(socket, 0, packet_out_temp))
 	{
-		printf("SDLNet_UDP_Send: %s\n", SDL_GetError());
+		logError("SDLNet_UDP_Send: %s", SDLNet_GetError());
 		return false;
 	}
 
@@ -168,7 +167,7 @@ bool network_send(int len)
 	else
 	{
 		// connection is probably bad now
-		fprintf(stderr, "warning: outbound packet queue overflow\n");
+		logError("Overflowed outbound packet queue.");
 		return false;
 	}
 
@@ -227,7 +226,7 @@ int network_check(void)
 	{
 		if (!SDLNet_UDP_Send(socket, 0, packet_out[0]))
 		{
-			printf("SDLNet_UDP_Send: %s\n", SDL_GetError());
+			logError("SDLNet_UDP_Send: %s", SDLNet_GetError());
 			return -1;
 		}
 
@@ -237,7 +236,7 @@ int network_check(void)
 	switch (SDLNet_UDP_Recv(socket, packet_temp))
 	{
 		case -1:
-			printf("SDLNet_UDP_Recv: %s\n", SDL_GetError());
+			logError("SDLNet_UDP_Recv: %s", SDLNet_GetError());
 			return -1;
 			break;
 		case 0:
@@ -374,7 +373,7 @@ int network_check(void)
 								{
 									if (!SDLNet_UDP_Send(socket, 0, packet_state_out[i]))
 									{
-										printf("SDLNet_UDP_Send: %s\n", SDL_GetError());
+										logError("SDLNet_UDP_Send: %s", SDLNet_GetError());
 										return -1;
 									}
 								}
@@ -383,7 +382,7 @@ int network_check(void)
 						break;
 
 					default:
-						fprintf(stderr, "warning: bad packet %d received\n", SDLNet_Read16(&packet_temp->data[0]));
+						logWarn("Received unknown packet type %d.", SDLNet_Read16(&packet_temp->data[0]));
 						return 0;
 						break;
 				}
@@ -422,7 +421,7 @@ void network_state_prepare(void)
 {
 	if (packet_state_out[0])
 	{
-		fprintf(stderr, "warning: state packet overwritten (previous packet remains unsent)\n");
+		logWarn("Previous state packet has not been sent.");
 	}
 	else
 	{
@@ -440,7 +439,7 @@ int network_state_send(void)
 {
 	if (!SDLNet_UDP_Send(socket, 0, packet_state_out[0]))
 	{
-		printf("SDLNet_UDP_Send: %s\n", SDL_GetError());
+		logError("SDLNet_UDP_Send: %s", SDLNet_GetError());
 		return -1;
 	}
 
@@ -455,7 +454,7 @@ int network_state_send(void)
 
 		if (!SDLNet_UDP_Send(socket, 0, packet_temp))
 		{
-			printf("SDLNet_UDP_Send: %s\n", SDL_GetError());
+			logError("SDLNet_UDP_Send: %s", SDLNet_GetError());
 			return -1;
 		}
 	}
@@ -620,10 +619,11 @@ connect_reset:
 	// until opponent sends connect packet
 	while (true)
 	{
-		push_joysticks_as_keyboard();
-		service_SDL_events(false);
+		setFrameCount(1);
 
-		if (newkey && lastkey_scan == SDL_SCANCODE_ESCAPE)
+		KeyboardInput keyboardInput;
+
+		if (keyboardGetInput(&keyboardInput) && keyboardInput.scancode == SDL_SCANCODE_ESCAPE)
 			network_tyrian_halt(0, false);
 
 		// never timeout
@@ -633,25 +633,24 @@ connect_reset:
 			break;
 
 		network_update();
-		network_check();
 
-		SDL_Delay(16);
+		waitUntilElapsed();
 	}
 
 connect_again:
 	if (SDLNet_Read16(&packet_in[0]->data[4]) != NET_VERSION)
 	{
-		fprintf(stderr, "error: network version did not match opponent's\n");
+		logError("Network version did not match opponent's.");
 		network_tyrian_halt(4, true);
 	}
 	if (SDLNet_Read16(&packet_in[0]->data[6]) != network_delay)
 	{
-		fprintf(stderr, "error: network delay did not match opponent's\n");
+		logError("Network delay did not match opponent's.");
 		network_tyrian_halt(5, true);
 	}
 	if (SDLNet_Read16(&packet_in[0]->data[10]) == thisPlayerNum)
 	{
-		fprintf(stderr, "error: player number conflicts with opponent's\n");
+		logError("Player number conflicts with opponent's.");
 		network_tyrian_halt(6, true);
 	}
 
@@ -669,19 +668,17 @@ connect_again:
 	// until opponent has acknowledged
 	while (!network_is_sync())
 	{
-		service_SDL_events(false);
+		setFrameCount(1);
 
 		// got a duplicate packet; process it again (but why?)
 		if (packet_in[0] && SDLNet_Read16(&packet_in[0]->data[0]) == PACKET_CONNECT)
 			goto connect_again;
 
-		network_check();
-
 		// maybe opponent didn't get our packet
 		if (SDL_GetTicks() - last_out_tick > NET_RETRY)
 			goto connect_reset;
 
-		SDL_Delay(16);
+		waitUntilElapsed();
 	}
 
 	// send another packet since sometimes the network syncs without both connect packets exchanged
@@ -731,18 +728,14 @@ void network_tyrian_halt(unsigned int err, bool attempt_sync)
 	{
 		while (!network_is_sync() && network_is_alive())
 		{
-			service_SDL_events(false);
+			setFrameCount(1);
 
-			network_check();
-			SDL_Delay(16);
+			waitUntilElapsed();
 		}
 	}
 
 	if (err)
-	{
-		while (!JE_anyButton())
-			SDL_Delay(16);
-	}
+		waitUntilGetInput();
 
 	fade_black(10);
 
@@ -753,24 +746,24 @@ void network_tyrian_halt(unsigned int err, bool attempt_sync)
 
 int network_init(void)
 {
-	printf("Initializing network...\n");
+	logInfo("Initializing network...");
 
 	if (network_delay * 2 > NET_PACKET_QUEUE - 2)
 	{
-		fprintf(stderr, "error: network delay would overflow packet queue\n");
+		logError("Network delay would overflow packet queue.");
 		return -4;
 	}
 
-	if (SDLNet_Init() == -1)
+	if (SDLNet_Init() != 0)
 	{
-		fprintf(stderr, "error: SDLNet_Init: %s\n", SDLNet_GetError());
+		logError("SDLNet_Init: %s", SDLNet_GetError());
 		return -1;
 	}
 
 	socket = SDLNet_UDP_Open(network_player_port);
 	if (!socket)
 	{
-		fprintf(stderr, "error: SDLNet_UDP_Open: %s\n", SDLNet_GetError());
+		logError("SDLNet_UDP_Open: %s", SDLNet_GetError());
 		return -2;
 	}
 
@@ -779,7 +772,7 @@ int network_init(void)
 
 	if (!packet_temp || !packet_out_temp)
 	{
-		printf("SDLNet_AllocPacket: %s\n", SDLNet_GetError());
+		logError("SDLNet_AllocPacket: %s", SDLNet_GetError());
 		return -3;
 	}
 

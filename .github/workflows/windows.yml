@@ -1,0 +1,88 @@
+name: Windows
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write        # needed to attach assets on release events
+
+jobs:
+  build:
+    name: Windows (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false     # one arch failing must not cancel the other
+      matrix:
+        include:
+          - { runner: windows-latest, arch: x86_64, msystem: UCRT64,     prefix: mingw-w64-ucrt-x86_64 }
+          - { runner: windows-11-arm, arch: arm64,  msystem: CLANGARM64, prefix: mingw-w64-clang-aarch64 }
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # git describe --tags for the version string
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          # no `update:` — the pinned base install is fine for CI and much
+          # faster; the action's built-in cache (default on) does the rest
+          install: >-
+            make git curl unzip zip
+            ${{ matrix.prefix }}-cc
+            ${{ matrix.prefix }}-pkgconf
+            ${{ matrix.prefix }}-SDL2
+            ${{ matrix.prefix }}-SDL2_net
+      - name: Compile check (debug, -Werror)
+        run: make -j"$(nproc)" debug
+      - name: Smoke test
+        run: ./opentyrian2000.exe --help
+      - name: Cache game data
+        uses: actions/cache@v6
+        with:
+          path: data
+          key: tyrian2000-data-v1
+      - name: Fetch game data
+        run: ./get_data.sh data
+      - name: Build (release)
+        run: |
+          make clean
+          make -j"$(nproc)"
+      - name: Smoke test
+        run: ./opentyrian2000.exe --help
+      - name: Package (exe + DLLs + game data)
+        run: |
+          mkdir -p dist/opentyrian2000/licenses
+          cp opentyrian2000.exe dist/opentyrian2000/
+          # bundle every non-system DLL the exe needs (SDL2, SDL2_net, compiler runtime)
+          ldd opentyrian2000.exe | grep -iv "system32\|/c/windows" | awk '{print $3}' | sort -u | xargs -I{} cp {} dist/opentyrian2000/
+          cp -r data dist/opentyrian2000/data
+          cp COPYING dist/opentyrian2000/COPYING.txt
+          cp doc/tyrian-freeware-license.txt dist/opentyrian2000/licenses/Tyrian.txt
+          for pkg in SDL2 SDL2_net; do
+            cp "$MINGW_PREFIX/share/licenses/$pkg/LICENSE.txt" "dist/opentyrian2000/licenses/$pkg.txt"
+          done
+          cd dist && zip -r "../opentyrian2000-windows-${{ matrix.arch }}.zip" opentyrian2000
+      - name: Extract the package
+        run: mkdir -p /tmp/pkgtest && unzip -q "opentyrian2000-windows-${{ matrix.arch }}.zip" -d /tmp/pkgtest
+      - name: Verify the package runs from a clean directory
+        run: cd / && /tmp/pkgtest/opentyrian2000/opentyrian2000.exe --help
+      - uses: actions/upload-artifact@v7
+        with:
+          name: opentyrian2000-windows-${{ matrix.arch }}
+          path: opentyrian2000-windows-${{ matrix.arch }}.zip
+      - name: Attach to release
+        if: github.event_name == 'release'
+        shell: bash          # runner's own bash — gh isn't on the MSYS2 PATH
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.event.release.tag_name }}"
+          asset="opentyrian2000-$tag-windows-${{ matrix.arch }}.zip"
+          mv "opentyrian2000-windows-${{ matrix.arch }}.zip" "$asset"
+          gh release upload "$tag" "$asset" --clobber

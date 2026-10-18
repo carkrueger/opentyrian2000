@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -20,9 +20,6 @@
 #define LOUDNESS_H
 
 #include "opentyr.h"
-#include "opl.h"
-
-#include "SDL.h"
 
 extern int audioSampleRate;
 
@@ -33,7 +30,6 @@ extern bool audio_disabled, music_disabled, samples_disabled;
 bool init_audio(void);
 void deinit_audio(void);
 
-void load_music(void);
 void play_song(unsigned int song_num);
 void restart_song(void);
 void stop_song(void);

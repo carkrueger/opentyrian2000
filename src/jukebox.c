@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -19,15 +19,13 @@
 #include "jukebox.h"
 
 #include "font.h"
-#include "joystick.h"
 #include "keyboard.h"
 #include "lds_play.h"
 #include "loudness.h"
 #include "mtrand.h"
+#include "musmast.h"
 #include "nortsong.h"
-#include "opentyr.h"
 #include "palette.h"
-#include "sprite.h"
 #include "starlib.h"
 #include "vga_palette.h"
 #include "video.h"
@@ -83,15 +81,13 @@ void jukebox(void)  // FKA Setup.jukeboxGo
 				play_song(mt_rand() % MUSIC_NUM);
 		}
 
-		setDelay(1);
+		setFrameCount(1);
 
 		SDL_FillRect(VGAScreenSeg, NULL, 0);
 
-		// starlib input needs to be rewritten
-		JE_starlib_main();
+		KeyboardInput keyboardInput;
 
-		push_joysticks_as_keyboard();
-		service_SDL_events(true);
+		bool gotKeyboardInput = starLibMain(&keyboardInput);
 
 		if (!hide_text)
 		{
@@ -104,9 +100,9 @@ void jukebox(void)  // FKA Setup.jukeboxGo
 			
 			const int x = VGAScreen->w / 2;
 			
-			draw_font_hv(VGAScreen, x, 170, "Press ESC to quit the jukebox.",           small_font, centered, 1, 0);
-			draw_font_hv(VGAScreen, x, 180, "Arrow keys change the song being played.", small_font, centered, 1, 0);
-			draw_font_hv(VGAScreen, x, 190, buffer,                                     small_font, centered, 1, 4);
+			drawFontHvAligned(VGAScreen, x, 170, "Press ESC to quit the jukebox.",           FONT_SMALL, ALIGN_CENTER, 1, 0);
+			drawFontHvAligned(VGAScreen, x, 180, "Arrow keys change the song being played.", FONT_SMALL, ALIGN_CENTER, 1, 0);
+			drawFontHvAligned(VGAScreen, x, 190, buffer,                                     FONT_SMALL, ALIGN_CENTER, 1, 4);
 		}
 
 		if (palette_fade_steps > 0)
@@ -114,19 +110,19 @@ void jukebox(void)  // FKA Setup.jukeboxGo
 		
 		JE_showVGA();
 
-		wait_delay();
+		waitUntilElapsed();
 
-		// quit on mouse click
-		Uint16 x, y;
-		if (JE_mousePosition(&x, &y) > 0)
+		// Quit on mouse click.
+		if (mouseGetInput(INPUT_NO_MOTION, NULL))
 			trigger_quit = true;
 
-		if (newkey)
+		if (gotKeyboardInput)
 		{
-			switch (lastkey_scan)
+			switch (KEY_COMBO(keyboardInput.mod, keyboardInput.scancode))
 			{
-			case SDL_SCANCODE_ESCAPE: // quit jukebox
+			case SDL_SCANCODE_ESCAPE:
 			case SDL_SCANCODE_Q:
+			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_Q):
 				trigger_quit = true;
 				break;
 
@@ -135,13 +131,23 @@ void jukebox(void)  // FKA Setup.jukeboxGo
 				break;
 
 			case SDL_SCANCODE_F:
+			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_F):
 				fading_song = !fading_song;
 				break;
 			case SDL_SCANCODE_N:
+			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_N):
 				fade_looped_songs = !fade_looped_songs;
 				break;
+			case SDL_SCANCODE_V:
+			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_V):
+				// Not implemented.
+				break;
+			case SDL_SCANCODE_T:
+			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_T):
+				// Not implemented.
+				break;
 
-			case SDL_SCANCODE_SLASH: // switch to sfx mode
+			case SDL_SCANCODE_SLASH:
 				fx = !fx;
 				break;
 			case SDL_SCANCODE_COMMA:
@@ -168,11 +174,13 @@ void jukebox(void)  // FKA Setup.jukeboxGo
 				play_song((song_playing + 1) % MUSIC_NUM);
 				stopped = false;
 				break;
-			case SDL_SCANCODE_S: // stop song
+			case SDL_SCANCODE_S:
+			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_S):
 				stop_song();
 				stopped = true;
 				break;
-			case SDL_SCANCODE_R: // restart song
+			case SDL_SCANCODE_R:
+			case KEY_COMBO(KMOD_SHIFT, SDL_SCANCODE_R):
 				restart_song();
 				stopped = false;
 				break;

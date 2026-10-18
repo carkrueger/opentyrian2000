@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -19,6 +19,7 @@
 #include "opentyr.h"
 
 #include "config.h"
+#include "demo.h"
 #include "destruct.h"
 #include "editship.h"
 #include "episodes.h"
@@ -29,6 +30,7 @@
 #include "joystick.h"
 #include "jukebox.h"
 #include "keyboard.h"
+#include "logging.h"
 #include "loudness.h"
 #include "mainint.h"
 #include "mouse.h"
@@ -197,6 +199,8 @@ void setupMenu(void)
 
 	for (; ; )
 	{
+		setFrameCount(1);
+
 		if (restart)
 		{
 			JE_loadPic(VGAScreen2, 2, false);
@@ -209,7 +213,7 @@ void setupMenu(void)
 		const Menu *menu = &menus[currentMenu];
 
 		// Draw header.
-		draw_font_hv_shadow(VGAScreen, xCenter, yMenuHeader, menu->header, large_font, centered, 15, -3, false, 2);
+		drawFontHvShadowAligned(VGAScreen, xCenter, yMenuHeader, menu->header, FONT_LARGE, ALIGN_CENTER, 15, -3, false, 2);
 
 		int yPicker = 0;
 		const int dyPickerItem = 15;
@@ -238,7 +242,7 @@ void setupMenu(void)
 
 			const char *const name = menuItem->name;
 
-			draw_font_hv_shadow(VGAScreen, xMenuItemName, y, name, normal_font, left_aligned, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+			drawFontHvShadow(VGAScreen, xMenuItemName, y, name, FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 
 			switch (menuItem->id)
 			{
@@ -250,15 +254,15 @@ void setupMenu(void)
 					value = buffer;
 				}
 
-				draw_font_hv_shadow(VGAScreen, xMenuItemValue, y, value, normal_font, left_aligned, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, value, FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
 			case MENU_ITEM_SCALER:
-				draw_font_hv_shadow(VGAScreen, xMenuItemValue, y, scalers[scaler].name, normal_font, left_aligned, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, scalers[scaler].name, FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
 			case MENU_ITEM_SCALING_MODE:
-				draw_font_hv_shadow(VGAScreen, xMenuItemValue, y, scaling_mode_names[scaling_mode], normal_font, left_aligned, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, scaling_mode_names[scaling_mode], FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
 			case MENU_ITEM_MUSIC_VOLUME:
@@ -302,7 +306,7 @@ void setupMenu(void)
 
 				const char *value = selectedMenuItem->getPickerItem(i, buffer, sizeof buffer);
 
-				draw_font_hv_shadow(VGAScreen, xMenuItemValue, y, value, normal_font, left_aligned, 15, -3 + (selected ? 2 : 0), false, 2);
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, value, FONT_NORMAL, 15, -3 + (selected ? 2 : 0), false, 2);
 			}
 		}
 
@@ -315,26 +319,25 @@ void setupMenu(void)
 			restart = false;
 		}
 
-		service_SDL_events(true);
-
 		JE_mouseStart();
 		JE_showVGA();
 		JE_mouseReplace();
 
-		bool mouseMoved = false;
 		int oldFullscreenDisplay = fullscreen_display;
-		do
+		while (true)
 		{
-			SDL_Delay(16);
+			waitUntilElapsed();
 
-			Uint16 oldMouseX = mouse_x;
-			Uint16 oldMouseY = mouse_y;
+			// If full-screen is toggled via keyboard shortcut then display
+			// setting needs to be updated.
+			if (fullscreen_display != oldFullscreenDisplay)
+				break;
 
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
+			if (hasInput(INPUT_ANY))
+				break;
 
-			mouseMoved = mouse_x != oldMouseX || mouse_y != oldMouseY;
-		} while (!(newkey || newmouse || mouseMoved || fullscreen_display != oldFullscreenDisplay));
+			setFrameCount(1);
+		}
 
 		if (currentPicker == MENU_ITEM_NONE)
 		{
@@ -342,15 +345,18 @@ void setupMenu(void)
 
 			bool action = false;
 
-			if (mouseMoved || newmouse)
+			MouseInput mouseInput;
+			KeyboardInput keyboardInput;
+
+			if (mouseGetInput(INPUT_ANY, &mouseInput))
 			{
 				// Find menu item name or value that was hovered or clicked.
-				if (mouse_x >= xMenuItem && mouse_x < xMenuItem + wMenuItem)
+				if (mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem)
 				{
 					for (size_t i = 0; i < menuItemsCount; ++i)
 					{
 						const int yMenuItem = yMenuItems + dyMenuItems * i;
-						if (mouse_y >= yMenuItem && mouse_y < yMenuItem + hMenuItem)
+						if (mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 						{
 							if (*selectedMenuItemIndex != i)
 							{
@@ -359,17 +365,17 @@ void setupMenu(void)
 								*selectedMenuItemIndex = i;
 							}
 
-							if (newmouse && lastmouse_but == SDL_BUTTON_LEFT &&
-							    lastmouse_y >= yMenuItem && lastmouse_y < yMenuItem + hMenuItem)
+							if (mouseInput.button == SDL_BUTTON_LEFT &&
+							    mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 							{
 								// Act on menu item via name.
-								if (lastmouse_x >= xMenuItemName && lastmouse_x < xMenuItemName + wMenuItemName)
+								if (mouseInput.x >= xMenuItemName && mouseInput.x < xMenuItemName + wMenuItemName)
 								{
 									action = true;
 								}
 
 								// Act on menu item via value.
-								else if (lastmouse_x >= xMenuItemValue && lastmouse_x < xMenuItemValue + wMenuItemValue)
+								else if (mouseInput.x >= xMenuItemValue && mouseInput.x < xMenuItemValue + wMenuItemValue)
 								{
 									switch (menuItems[*selectedMenuItemIndex].id)
 									{
@@ -384,7 +390,7 @@ void setupMenu(void)
 									{
 										JE_playSampleNum(S_CURSOR);
 
-										int value = (lastmouse_x - xMenuItemValue) * 255 / (wMenuItemValue - 1);
+										int value = (mouseInput.x - xMenuItemValue) * 255 / (wMenuItemValue - 1);
 										tyrMusicVolume = MIN(MAX(0, value), 255);
 
 										set_volume(tyrMusicVolume, fxVolume);
@@ -392,7 +398,7 @@ void setupMenu(void)
 									}
 									case MENU_ITEM_SOUND_VOLUME:
 									{
-										int value = (lastmouse_x - xMenuItemValue) * 255 / (wMenuItemValue - 1);
+										int value = (mouseInput.x - xMenuItemValue) * 255 / (wMenuItemValue - 1);
 										fxVolume = MIN(MAX(0, value), 255);
 
 										set_volume(tyrMusicVolume, fxVolume);
@@ -410,20 +416,17 @@ void setupMenu(void)
 						}
 					}
 				}
-			}
 
-			if (newmouse)
-			{
-				if (lastmouse_but == SDL_BUTTON_RIGHT)
+				if (mouseInput.button == SDL_BUTTON_RIGHT)
 				{
 					JE_playSampleNum(S_SPRING);
 
 					currentMenu = menuParents[currentMenu];
 				}
 			}
-			else if (newkey)
+			else if (keyboardGetInput(&keyboardInput))
 			{
-				switch (lastkey_scan)
+				switch (keyboardInput.scancode)
 				{
 				case SDL_SCANCODE_UP:
 				{
@@ -620,18 +623,21 @@ void setupMenu(void)
 
 			bool action = false;
 
-			if (mouseMoved || newmouse)
+			MouseInput mouseInput;
+			KeyboardInput keyboardInput;
+
+			if (mouseGetInput(INPUT_ANY, &mouseInput))
 			{
 				const size_t pickerItemsCount = selectedMenuItem->getPickerItemsCount();
 
-				// Find picker item that was hovered clicked.
-				if (mouse_x >= xMenuItemValue && mouse_x < xMenuItemValue + wMenuItemValue)
+				// Find picker item that was hovered or clicked.
+				if (mouseInput.x >= xMenuItemValue && mouseInput.x < xMenuItemValue + wMenuItemValue)
 				{
 					for (size_t i = 0; i < pickerItemsCount; ++i)
 					{
 						const int yPickerItem = yPicker + dyPickerItem * i;
 
-						if (mouse_y >= yPickerItem && mouse_y < yPickerItem + hPickerItem)
+						if (mouseInput.y >= yPickerItem && mouseInput.y < yPickerItem + hPickerItem)
 						{
 							if (pickerSelectedIndex != i)
 							{
@@ -641,29 +647,26 @@ void setupMenu(void)
 							}
 
 							// Act on picker item.
-							if (newmouse && lastmouse_but == SDL_BUTTON_LEFT &&
-							    lastmouse_x >= xMenuItemValue && lastmouse_y < xMenuItemValue + wMenuItemName &&
-							    lastmouse_y >= yPickerItem && lastmouse_y < yPickerItem + hPickerItem)
+							if (mouseInput.button == SDL_BUTTON_LEFT &&
+							    mouseInput.x >= xMenuItemValue && mouseInput.y < xMenuItemValue + wMenuItemName &&
+							    mouseInput.y >= yPickerItem && mouseInput.y < yPickerItem + hPickerItem)
 							{
 								action = true;
 							}
 						}
 					}
 				}
-			}
 
-			if (newmouse)
-			{
-				if (lastmouse_but == SDL_BUTTON_RIGHT)
+				if (mouseInput.button == SDL_BUTTON_RIGHT)
 				{
 					JE_playSampleNum(S_SPRING);
 
 					currentPicker = MENU_ITEM_NONE;
 				}
 			}
-			else if (newkey)
+			else if (keyboardGetInput(&keyboardInput))
 			{
-				switch (lastkey_scan)
+				switch (keyboardInput.scancode)
 				{
 				case SDL_SCANCODE_UP:
 				{
@@ -723,7 +726,7 @@ void setupMenu(void)
 					{
 						const int oldScaler = scaler;
 						if (!init_scaler(pickerSelectedIndex) &&  // try new scaler
-							!init_scaler(oldScaler))              // revert on fail
+						    !init_scaler(oldScaler))              // revert on fail
 						{
 							exit(EXIT_FAILURE);
 						}
@@ -747,52 +750,80 @@ void setupMenu(void)
 
 int main(int argc, char *argv[])
 {
+#ifndef NDEBUG
+	SDL_LogSetPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_DEBUG);
+#endif
+
 	mt_srand(time(NULL));
 
-	printf("\nWelcome to... >> %s %s <<\n\n", opentyrian_str, opentyrian_version);
+	logInfo("%s", "");
+	logInfo("Welcome to... >> %s %s <<", opentyrian_str, opentyrian_version);
+	logInfo("%s", "");
+	logInfo("Copyright (C) The OpenTyrian Development Team");
+	logInfo("Copyright (C) Kaito Sinclaire");
+	logInfo("%s", "");
+	logInfo("This program comes with ABSOLUTELY NO WARRANTY.");
+	logInfo("This is free software, and you are welcome to redistribute it");
+	logInfo("under certain conditions.  See the file COPYING for details.");
+	logInfo("%s", "");
 
-	printf("Copyright (C) 2022 The OpenTyrian Development Team\n");
-	printf("Copyright (C) 2022 Kaito Sinclaire\n\n");
-
-	printf("This program comes with ABSOLUTELY NO WARRANTY.\n");
-	printf("This is free software, and you are welcome to redistribute it\n");
-	printf("under certain conditions.  See the file COPYING for details.\n\n");
-
-	if (SDL_Init(0))
+	if (SDL_Init(0) != 0)
 	{
-		printf("Failed to initialize SDL: %s\n", SDL_GetError());
-		return -1;
+		logFatal("Failed to initialize SDL: %s", SDL_GetError());
+		return EXIT_FAILURE;
 	}
 
-	// Note for this reorganization:
-	// Tyrian 2000 requires help text to be loaded before the configuration,
-	// because the default high score names are stored in help text
+	atexit(SDL_Quit);
+
+	loadConfiguration();
+
+	xmas = xmas_time();  // arg handler may override
 
 	JE_paramCheck(argc, argv);
 
-	if (!override_xmas) // arg handler may override
-		xmas = xmas_time();
+	if (!findDataFiles())
+	{
+		logFatal("The Tyrian 2000 data files were not found.  OpenTyrian2000 requires the Tyrian 2000 data files.");
+		return EXIT_FAILURE;
+	}
 
+	File file = dataFileOpen("tyrian.shp", "rb");
+	Uint16 temp = fileReadU16(&file);
+	fileClose(&file);
+
+	if (temp == 11)
+	{
+		logFatal("The Tyrian v1.0/v1.1 data files were found.  OpenTyrian2000 requires the Tyrian 2000 data files.");
+		return EXIT_FAILURE;
+	}
+	else if (temp == 12)
+	{
+		logFatal("The Tyrian v2.0/v2.1 data files were found.  OpenTyrian2000 requires the Tyrian 2000 data files.");
+		return EXIT_FAILURE;
+	}
+
+	// Tyrian 2000 requires help text to be loaded before the saves,
+	// because the default high score names are stored in help text.
 	JE_loadHelpText();
-	/*debuginfo("Help text complete");*/
 
-	JE_loadConfiguration();
+	loadSaves();
 
 	JE_scanForEpisodes();
 
 	init_video();
 	init_keyboard();
 	init_joysticks();
-	printf("assuming mouse detected\n"); // SDL can't tell us if there isn't one
+	if (has_mouse)
+		logInfo("Assuming mouse detected.");  // SDL can't tell us if there isn't one.
 
-	if (xmas && (!dir_file_exists(data_dir(), "tyrianc.shp") || !dir_file_exists(data_dir(), "voicesc.snd")))
+	if (xmas && (!dataFileExists("tyrianc.shp") || !dataFileExists("voicesc.snd")))
 	{
 		xmas = false;
 
-		fprintf(stderr, "warning: Christmas is missing.\n");
+		logWarn("Christmas is missing.");
 	}
 
-	JE_loadPals();
+	loadPals();
 	JE_loadMainShapeTables(xmas ? "tyrianc.shp" : "tyrian.shp");
 
 	if (xmas && !override_xmas && !xmas_prompt())
@@ -810,23 +841,18 @@ int main(int argc, char *argv[])
 
 	if (!audio_disabled)
 	{
-		printf("initializing SDL audio...\n");
-
-		init_audio();
-
-		load_music();
-
-		loadSndFile(xmas);
+		if (init_audio())
+			loadSndFile(xmas);
 	}
 	else
 	{
-		printf("audio disabled\n");
+		logInfo("Audio is disabled.");
 	}
 
-	if (record_demo)
-		printf("demo recording enabled (input limited to keyboard)\n");
+	if (recordDemo)
+		logInfo("Game will be recorded.");
 
-	JE_loadExtraShapes();  /*Editship*/
+	loadExtraShapes();  /*Editship*/
 
 	if (isNetworkGame)
 	{
@@ -836,23 +862,23 @@ int main(int argc, char *argv[])
 			network_tyrian_halt(3, false);
 		}
 #else
-		fprintf(stderr, "OpenTyrian was compiled without networking support.");
-		JE_tyrianHalt(5);
+		logFatal("OpenTyrian was compiled without networking support.");
+		return EXIT_FAILURE;
 #endif
 	}
 
-#ifdef NDEBUG
-	if (!isNetworkGame)
-		intro_logos();
-#endif
-
 	for (; ; )
 	{
+#ifdef NDEBUG
+		if (!isNetworkGame && !stoppedDemo)
+			intro_logos();
+#endif
+
 		JE_initPlayerData();
 		JE_sortHighScores();
 
-		play_demo = false;
-		stopped_demo = false;
+		playDemo = false;
+		stoppedDemo = false;
 
 		gameLoaded = false;
 		jumpSection = false;

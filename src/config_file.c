@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2015  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,6 +24,8 @@
  */
 #include "config_file.h"
 
+#include "logging.h"
+
 #include <assert.h>
 #include <limits.h>
 #include <stdbool.h>
@@ -38,7 +40,7 @@ extern void config_oom(void);
 
 void config_oom(void)
 {
-	fprintf(stderr, "out of memory\n");
+	logFatal("Out of memory.");
 	exit(EXIT_FAILURE);
 }
 
@@ -903,7 +905,7 @@ bool config_parse(Config *config, FILE *file)
 	
 	free(buffer);
 	
-	return config;
+	return true;
 }
 
 /* config writer */

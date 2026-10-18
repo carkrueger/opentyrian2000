@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -19,7 +19,7 @@
 #ifndef MENUS_H
 #define MENUS_H
 
-#include "opentyr.h"
+#include <stdbool.h>
 
 #define GAMEPLAY_NAME_COUNT 6
 extern char episode_name[6][31];

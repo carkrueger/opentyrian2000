@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -19,20 +19,18 @@
 #ifndef PALETTE_H
 #define PALETTE_H
 
-#include "opentyr.h"
-
 #include "SDL.h"
 
 typedef SDL_Color Palette[256];
 
 extern Palette palettes[];
-extern int palette_count;
+extern size_t palettesCount;
 
 extern Uint32 rgb_palette[256], yuv_palette[256];
 
 extern Palette colors; // TODO: get rid of this
 
-void JE_loadPals(void);
+void loadPals(void);
 
 void set_palette(Palette colors, unsigned int first_color, unsigned int last_color);
 void set_colors(SDL_Color color, unsigned int first_color, unsigned int last_color);

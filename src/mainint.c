@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -20,6 +20,7 @@
 
 #include "backgrnd.h"
 #include "config.h"
+#include "demo.h"
 #include "editship.h"
 #include "episodes.h"
 #include "file.h"
@@ -27,14 +28,15 @@
 #include "fonthand.h"
 #include "game_menu.h"
 #include "helptext.h"
-#include "helptext.h"
 #include "joystick.h"
 #include "keyboard.h"
 #include "lds_play.h"
+#include "logging.h"
 #include "loudness.h"
 #include "menus.h"
 #include "mouse.h"
 #include "mtrand.h"
+#include "musmast.h"
 #include "network.h"
 #include "nortsong.h"
 #include "nortvars.h"
@@ -52,7 +54,7 @@
 #include "video.h"
 
 #include <assert.h>
-#include <ctype.h>
+#include <math.h>
 #include <string.h>
 
 bool button[4];
@@ -89,8 +91,6 @@ void JE_outCharGlow(JE_word x, JE_word y, const char *s)
 	JE_word textloc[60]; /* [1..60] */
 	JE_byte bank;
 
-	setDelay2(1);
-
 	bank = (warningRed) ? 7 : ((useLastBank) ? 15 : 14);
 
 	if (s[0] == '\0')
@@ -115,7 +115,7 @@ void JE_outCharGlow(JE_word x, JE_word y, const char *s)
 		{
 			textloc[z] = loc;
 
-			int sprite_id = font_ascii[(unsigned char)s[z]];
+			int sprite_id = fontMap[(unsigned char)s[z]];
 
 			if (s[z] == ' ')
 				loc += 6;
@@ -125,45 +125,48 @@ void JE_outCharGlow(JE_word x, JE_word y, const char *s)
 
 		for (loc = 0; (unsigned)loc < strlen(s) + 28; loc++)
 		{
-			if (!ESCPressed)
+			if (ESCPressed)
+				break;
+
+			setFrameCount(1);
+
+			int sprite_id = -1;
+
+			for (z = loc - 28; z <= loc; z++)
 			{
-				setDelay(frameCountMax);
-
-				NETWORK_KEEP_ALIVE();
-
-				int sprite_id = -1;
-
-				for (z = loc - 28; z <= loc; z++)
+				if (z >= 0 && z < maxloc)
 				{
-					if (z >= 0 && z < maxloc)
+					sprite_id = fontMap[(unsigned char)s[z]];
+
+					if (sprite_id != -1)
 					{
-						sprite_id = font_ascii[(unsigned char)s[z]];
+						blit_sprite_hv(VGAScreen, textloc[z], y, TINY_FONT, sprite_id, bank, glowcol[z]);
 
-						if (sprite_id != -1)
-						{
-							blit_sprite_hv(VGAScreen, textloc[z], y, TINY_FONT, sprite_id, bank, glowcol[z]);
-
-							glowcol[z] += glowcolc[z];
-							if (glowcol[z] > 9)
-								glowcolc[z] = -1;
-						}
+						glowcol[z] += glowcolc[z];
+						if (glowcol[z] > 9)
+							glowcolc[z] = -1;
 					}
 				}
-				if (sprite_id != -1 && --z < maxloc)
-					blit_sprite_dark(VGAScreen, textloc[z] + 1, y + 1, TINY_FONT, sprite_id, true);
+			}
+			if (sprite_id != -1 && --z < maxloc)
+				blit_sprite_dark(VGAScreen, textloc[z] + 1, y + 1, TINY_FONT, sprite_id, true);
 
-				if (JE_anyButton())
+			JE_showVGA();
+
+			for (JE_word frameCount = frameCountMax; frameCount > 0; --frameCount)
+			{
+				if (levelWarningDisplay)
+					JE_updateWarning(VGAScreen);
+
+				waitUntilElapsed();
+
+				if (getInput())
 					frameCountMax = 0;
 
-				do
-				{
-					if (levelWarningDisplay)
-						JE_updateWarning(VGAScreen);
+				if (ESCPressed)
+					break;
 
-					SDL_Delay(16);
-				} while (!(getDelayTicks() == 0 || ESCPressed));
-
-				JE_showVGA();
+				setFrameCount(1);
 			}
 		}
 	}
@@ -209,6 +212,8 @@ void JE_helpSystem(JE_byte startTopic)
 
 	for (; ; )
 	{
+		setFrameCount(1);
+
 		if (restart)
 		{
 			play_song(SONG_MAPVIEW);
@@ -230,19 +235,19 @@ void JE_helpSystem(JE_byte startTopic)
 		memcpy(VGAScreen->pixels, VGAScreen2->pixels, (size_t)VGAScreen->pitch * VGAScreen->h);
 
 		// Draw header.
-		draw_font_hv_shadow(VGAScreen, xCenter, yMenuHeader, topicName[0], large_font, centered, 15, -3, false, 2);
+		drawFontHvShadowAligned(VGAScreen, xCenter, yMenuHeader, topicName[0], FONT_LARGE, ALIGN_CENTER, 15, -3, false, 2);
 
 		// Draw menu items.
 		for (size_t i = 0; i < menuItemsCount; ++i)
 		{
 			const char *const text = topicName[i + 1];
 
-			wMenuItem[i] = JE_textWidth(text, normal_font);
+			wMenuItem[i] = JE_textWidth(text, FONT_NORMAL);
 			const int y = yMenuItems + dyMenuItems * i;
 
 			const bool selected = i == selectedIndex;
 
-			draw_font_hv_shadow(VGAScreen, xCenter, y, text, normal_font, centered, 15, -3 + (selected ? 2 : 0), false, 2);
+			drawFontHvShadowAligned(VGAScreen, xCenter, y, text, FONT_NORMAL, ALIGN_CENTER, 15, -3 + (selected ? 2 : 0), false, 2);
 		}
 
 		mouseCursor = MOUSE_POINTER_NORMAL;
@@ -254,41 +259,31 @@ void JE_helpSystem(JE_byte startTopic)
 			restart = false;
 		}
 
-		service_SDL_events(true);
-
 		JE_mouseStart();
 		JE_showVGA();
 		JE_mouseReplace();
 
-		bool mouseMoved = false;
-		do
-		{
-			SDL_Delay(16);
-
-			Uint16 oldMouseX = mouse_x;
-			Uint16 oldMouseY = mouse_y;
-
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
-
-			mouseMoved = mouse_x != oldMouseX || mouse_y != oldMouseY;
-		} while (!(newkey || newmouse || mouseMoved));
+		waitUntilElapsed();
+		waitUntilHasInput(INPUT_ANY);
 
 		// Handle interaction.
 
 		bool action = false;
 		bool done = false;
 
-		if (mouseMoved || newmouse)
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_ANY, &mouseInput))
 		{
 			// Find menu item that was hovered or clicked.
 			for (size_t i = 0; i < menuItemsCount; ++i)
 			{
 				const int xMenuItem = xCenter - wMenuItem[i] / 2;
-				if (mouse_x >= xMenuItem && mouse_x < xMenuItem + wMenuItem[i])
+				if (mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem[i])
 				{
 					const int yMenuItem = yMenuItems + dyMenuItems * i;
-					if (mouse_y >= yMenuItem && mouse_y < yMenuItem + hMenuItem)
+					if (mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 					{
 						if (selectedIndex != i)
 						{
@@ -297,9 +292,9 @@ void JE_helpSystem(JE_byte startTopic)
 							selectedIndex = i;
 						}
 
-						if (newmouse && lastmouse_but == SDL_BUTTON_LEFT &&
-						    lastmouse_x >= xMenuItem && lastmouse_x < xMenuItem + wMenuItem[i] &&
-						    lastmouse_y >= yMenuItem && lastmouse_y < yMenuItem + hMenuItem)
+						if (mouseInput.button == SDL_BUTTON_LEFT &&
+						    mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem[i] &&
+						    mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 						{
 							action = true;
 						}
@@ -308,20 +303,17 @@ void JE_helpSystem(JE_byte startTopic)
 					}
 				}
 			}
-		}
 
-		if (newmouse)
-		{
-			if (lastmouse_but == SDL_BUTTON_RIGHT)
+			if (mouseInput.button == SDL_BUTTON_RIGHT)
 			{
 				JE_playSampleNum(S_SPRING);
 
 				done = true;
 			}
 		}
-		else if (newkey)
+		else if (keyboardGetInput(&keyboardInput))
 		{
-			switch (lastkey_scan)
+			switch (keyboardInput.scancode)
 			{
 			case SDL_SCANCODE_UP:
 			{
@@ -405,6 +397,8 @@ static bool helpSystemPage(Uint8 *topic, bool *restart)
 				break;
 		}
 
+		setFrameCount(1);
+
 		// Restore background.
 		memcpy(VGAScreen->pixels, VGAScreen2->pixels, (size_t)VGAScreen->pitch * VGAScreen->h);
 
@@ -413,76 +407,70 @@ static bool helpSystemPage(Uint8 *topic, bool *restart)
 		const char *const text = topicName[*topic - 1];
 
 		// Draw header.
-		draw_font_hv_shadow(VGAScreen, xCenter, 1, text, normal_font, centered, 15, -3, false, 2);
+		drawFontHvShadowAligned(VGAScreen, xCenter, 1, text, FONT_NORMAL, ALIGN_CENTER, 15, -3, false, 2);
 
 		// Draw footer.
 		JE_char buffer[128];
 
 		snprintf(buffer, sizeof buffer, "%s %d", miscText[24], page - topicStart[*topic - 1] + 1);
-		draw_font_hv(VGAScreen, 10, 192, buffer, small_font, left_aligned, 13, 5);
+		drawFontHvAligned(VGAScreen, 10, 192, buffer, FONT_SMALL, ALIGN_LEFT, 13, 5);
 
 		snprintf(buffer, sizeof buffer, "%s %d of %d", miscText[25], page, MAX_PAGE);
-		draw_font_hv(VGAScreen, 320 - 10, 192, buffer, small_font, right_aligned, 13, 5);
+		drawFontHvAligned(VGAScreen, 320 - 10, 192, buffer, FONT_SMALL, ALIGN_RIGHT, 13, 5);
 
 		// Draw text.
-
-		helpBoxBrightness = 3;
-		verticalHeight = 8;
 
 		switch (page)
 		{
 		case 1: /* One-Player Menu */
-			JE_HBox(VGAScreen, 10,  20,  2, 60);
-			JE_HBox(VGAScreen, 10,  50,  5, 60);
-			JE_HBox(VGAScreen, 10,  80, 21, 60);
-			JE_HBox(VGAScreen, 10, 110,  1, 60);
-			JE_HBox(VGAScreen, 10, 140, 28, 60);
+			JE_HBox(VGAScreen, 10,  20,  2, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10,  50,  5, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10,  80, 21, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 110,  1, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 140, 28, 60, 8, 12, 3);
 			break;
 		case 2: /* Two-Player Menu */
-			JE_HBox(VGAScreen, 10,  20,  1, 60);
-			JE_HBox(VGAScreen, 10,  60,  2, 60);
-			JE_HBox(VGAScreen, 10, 100, 21, 60);
-			JE_HBox(VGAScreen, 10, 140, 28, 60);
+			JE_HBox(VGAScreen, 10,  20,  1, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10,  60,  2, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 100, 21, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 140, 28, 60, 8, 12, 3);
 			break;
 		case 3: /* Upgrade Ship */
-			JE_HBox(VGAScreen, 10,  20,  5, 60);
-			JE_HBox(VGAScreen, 10,  70,  6, 60);
-			JE_HBox(VGAScreen, 10, 110,  7, 60);
+			JE_HBox(VGAScreen, 10,  20,  5, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10,  70,  6, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 110,  7, 60, 8, 12, 3);
 			break;
 		case 4:
-			JE_HBox(VGAScreen, 10,  20,  8, 60);
-			JE_HBox(VGAScreen, 10,  55,  9, 60);
-			JE_HBox(VGAScreen, 10,  87, 10, 60);
-			JE_HBox(VGAScreen, 10, 120, 11, 60);
-			JE_HBox(VGAScreen, 10, 170, 13, 60);
+			JE_HBox(VGAScreen, 10,  20,  8, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10,  55,  9, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10,  87, 10, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 120, 11, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 170, 13, 60, 8, 12, 3);
 			break;
 		case 5:
-			JE_HBox(VGAScreen, 10,  20, 14, 60);
-			JE_HBox(VGAScreen, 10,  80, 15, 60);
-			JE_HBox(VGAScreen, 10, 120, 16, 60);
+			JE_HBox(VGAScreen, 10,  20, 14, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10,  80, 15, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 120, 16, 60, 8, 12, 3);
 			break;
 		case 6:
-			JE_HBox(VGAScreen, 10,  20, 17, 60);
-			JE_HBox(VGAScreen, 10,  40, 18, 60);
-			JE_HBox(VGAScreen, 10, 130, 20, 60);
+			JE_HBox(VGAScreen, 10,  20, 17, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10,  40, 18, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 130, 20, 60, 8, 12, 3);
 			break;
 		case 7: /* Options */
-			JE_HBox(VGAScreen, 10,  20, 21, 60);
-			JE_HBox(VGAScreen, 10,  70, 22, 60);
-			JE_HBox(VGAScreen, 10, 110, 23, 60);
-			JE_HBox(VGAScreen, 10, 140, 24, 60);
+			JE_HBox(VGAScreen, 10,  20, 21, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10,  70, 22, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 110, 23, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 140, 24, 60, 8, 12, 3);
 			break;
 		case 8:
-			JE_HBox(VGAScreen, 10,  20, 25, 60);
-			JE_HBox(VGAScreen, 10,  60, 26, 60);
-			JE_HBox(VGAScreen, 10, 100, 27, 60);
-			JE_HBox(VGAScreen, 10, 140, 28, 60);
-			JE_HBox(VGAScreen, 10, 170, 29, 60);
+			JE_HBox(VGAScreen, 10,  20, 25, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10,  60, 26, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 100, 27, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 140, 28, 60, 8, 12, 3);
+			JE_HBox(VGAScreen, 10, 170, 29, 60, 8, 12, 3);
 			break;
 		}
-
-		helpBoxBrightness = 1;
-		verticalHeight = 7;
 
 		if (*restart)
 		{
@@ -491,35 +479,39 @@ static bool helpSystemPage(Uint8 *topic, bool *restart)
 			*restart = false;
 		}
 
-		do
+		while (true)
 		{
-			mouseCursor = mouse_x < xCenter ? MOUSE_POINTER_LEFT : MOUSE_POINTER_RIGHT;
-
-			service_SDL_events(true);
+			mouseCursor = mouseX < xCenter ? MOUSE_POINTER_LEFT : MOUSE_POINTER_RIGHT;
 
 			JE_mouseStart();
 			JE_showVGA();
 			JE_mouseReplace();
 
-			SDL_Delay(16);
+			waitUntilElapsed();
+			waitUntilHasInput(INPUT_ANY);
 
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
-		} while (!(newkey || newmouse));
+			if (hasInput(INPUT_NO_MOTION))
+				break;
+
+			setFrameCount(1);
+		}
 
 		// Handle interaction.
 
 		bool done = false;
 
-		if (newmouse)
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_NO_MOTION, &mouseInput))
 		{
-			switch (lastmouse_but)
+			switch (mouseInput.button)
 			{
 			case SDL_BUTTON_LEFT:
 			{
 				JE_playSampleNum(S_CURSOR);
 
-				if (mouse_x < xCenter)
+				if (mouseInput.x < xCenter)
 					page -= 1;
 				else
 					page += 1;
@@ -536,9 +528,9 @@ static bool helpSystemPage(Uint8 *topic, bool *restart)
 				break;
 			}
 		}
-		else if (newkey)
+		else if (keyboardGetInput(&keyboardInput))
 		{
-			switch (lastkey_scan)
+			switch (keyboardInput.scancode)
 			{
 			case SDL_SCANCODE_LEFT:
 			{
@@ -653,6 +645,8 @@ bool JE_loadScreen(void)
 
 	for (; ; )
 	{
+		setFrameCount(1);
+
 		if (restart)
 		{
 			JE_loadPic(VGAScreen2, 2, false);
@@ -663,7 +657,7 @@ bool JE_loadScreen(void)
 		memcpy(VGAScreen->pixels, VGAScreen2->pixels, (size_t)VGAScreen->pitch * VGAScreen->h);
 
 		// Draw header.
-		draw_font_hv_shadow(VGAScreen, xCenter, yMenuHeader, miscText[38 + playersIndex], large_font, centered, 15, -3, false, 2);
+		drawFontHvShadowAligned(VGAScreen, xCenter, yMenuHeader, miscText[38 + playersIndex], FONT_LARGE, ALIGN_CENTER, 15, -3, false, 2);
 
 		// Draw menu items.
 
@@ -715,8 +709,7 @@ bool JE_loadScreen(void)
 		if (rightControlVisible)
 			blit_sprite2x2(VGAScreen, xRightControl, yControls, shopSpriteSheet, 281);
 
-		helpBoxColor = 15;
-		JE_helpBox(VGAScreen, 103, 182, miscText[55], 25);
+		JE_helpBox(VGAScreen, 103, 182, miscText[55], 25, 7, 15, 1, FULL_SHADE);
 
 		if (restart)
 		{
@@ -727,25 +720,12 @@ bool JE_loadScreen(void)
 			restart = false;
 		}
 
-		service_SDL_events(true);
-
 		JE_mouseStart();
 		JE_showVGA();
 		JE_mouseReplace();
 
-		bool mouseMoved = false;
-		do
-		{
-			SDL_Delay(16);
-
-			Uint16 oldMouseX = mouse_x;
-			Uint16 oldMouseY = mouse_y;
-
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
-
-			mouseMoved = mouse_x != oldMouseX || mouse_y != oldMouseY;
-		} while (!(newkey || newmouse || mouseMoved));
+		waitUntilElapsed();
+		waitUntilHasInput(INPUT_ANY);
 
 		// Handle interaction.
 
@@ -754,14 +734,17 @@ bool JE_loadScreen(void)
 		bool action = false;
 		bool done = false;
 
-		if (mouseMoved || newmouse)
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_ANY, &mouseInput))
 		{
 			if (leftControlVisible &&
-			    mouse_y >= yControls &&
-			    mouse_x >= xLeftControl &&
-			    mouse_x < xLeftControl + wControl)
+			    mouseInput.y >= yControls &&
+			    mouseInput.x >= xLeftControl &&
+			    mouseInput.x < xLeftControl + wControl)
 			{
-				if (newmouse && lastmouse_but == SDL_BUTTON_LEFT)
+				if (mouseInput.button == SDL_BUTTON_LEFT)
 				{
 					JE_playSampleNum(S_CURSOR);
 
@@ -769,11 +752,11 @@ bool JE_loadScreen(void)
 				}
 			}
 			else if (rightControlVisible &&
-			         mouse_y >= yControls &&
-			         mouse_x >= xRightControl &&
-			         mouse_x < xRightControl + wControl)
+			         mouseInput.y >= yControls &&
+			         mouseInput.x >= xRightControl &&
+			         mouseInput.x < xRightControl + wControl)
 			{
-				if (newmouse && lastmouse_but == SDL_BUTTON_LEFT)
+				if (mouseInput.button == SDL_BUTTON_LEFT)
 				{
 					JE_playSampleNum(S_CURSOR);
 
@@ -783,12 +766,12 @@ bool JE_loadScreen(void)
 			else
 			{
 				// Find menu item that was hovered or clicked.
-				if (mouse_x >= xMenuItem && mouse_x < xMenuItem + wMenuItem)
+				if (mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem)
 				{
 					for (size_t i = 0; i < menuItemsCount; ++i)
 					{
 						const int yMenuItem = yMenuItems + dyMenuItems * i;
-						if (mouse_y >= yMenuItem && mouse_y < yMenuItem + hMenuItem)
+						if (mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 						{
 							if (selectedIndex != i)
 							{
@@ -797,9 +780,9 @@ bool JE_loadScreen(void)
 								selectedIndex = i;
 							}
 
-							if (newmouse && lastmouse_but == SDL_BUTTON_LEFT &&
-							    lastmouse_x >= xMenuItem && lastmouse_x < xMenuItem + wMenuItem &&
-							    lastmouse_y >= yMenuItem && lastmouse_y < yMenuItem + hMenuItem)
+							if (mouseInput.button == SDL_BUTTON_LEFT &&
+							    mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem &&
+							    mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 							{
 								action = true;
 							}
@@ -809,20 +792,17 @@ bool JE_loadScreen(void)
 					}
 				}
 			}
-		}
 
-		if (newmouse)
-		{
-			if (lastmouse_but == SDL_BUTTON_RIGHT)
+			if (mouseInput.button == SDL_BUTTON_RIGHT)
 			{
 				JE_playSampleNum(S_SPRING);
 
 				done = true;
 			}
 		}
-		else if (newkey)
+		else if (keyboardGetInput(&keyboardInput))
 		{
-			switch (lastkey_scan)
+			switch (keyboardInput.scancode)
 			{
 			case SDL_SCANCODE_LEFT:
 			{
@@ -1025,16 +1005,8 @@ void JE_nextEpisode(void)
 	JE_showVGA();
 	fade_palette(colors, 15, 0, 255);
 
-	JE_wipeKey();
 	if (!constantPlay)
-	{
-		do
-		{
-			NETWORK_KEEP_ALIVE();
-
-			SDL_Delay(16);
-		} while (!JE_anyButton());
-	}
+		waitUntilGetInput();
 
 	fade_black(15);
 }
@@ -1139,13 +1111,15 @@ void JE_highScoreScreen(void)
 
 	for (; ; )
 	{
+		setFrameCount(1);
+
 		if (restart)
 		{
 			JE_loadPic(VGAScreen2, 2, false);
 			fill_rectangle_wh(VGAScreen2, 0, 192, 320, 8, 0);
 
 			// Draw header.
-			draw_font_hv_shadow(VGAScreen2, xCenter, yMenuHeader, miscText[50], large_font, centered, 15, -3, false, 2);
+			drawFontHvShadowAligned(VGAScreen2, xCenter, yMenuHeader, miscText[50], FONT_LARGE, ALIGN_CENTER, 15, -3, false, 2);
 		}
 
 		// Restore background and header.
@@ -1169,10 +1143,10 @@ void JE_highScoreScreen(void)
 		}
 
 		// Draw episode header.
-		draw_font_hv_shadow(VGAScreen, xCenter, yEpisodeHeader, buffer, normal_font, centered, 15, -3, false, 2);
+		drawFontHvShadowAligned(VGAScreen, xCenter, yEpisodeHeader, buffer, FONT_NORMAL, ALIGN_CENTER, 15, -3, false, 2);
 
 		// Draw 1-player scores.
-		draw_font_hv_shadow(VGAScreen, xCenter, 55, miscText[46], normal_font, centered, 15, -3, false, 2);
+		drawFontHvShadowAligned(VGAScreen, xCenter, 55, miscText[46], FONT_NORMAL, ALIGN_CENTER, 15, -3, false, 2);
 
 		for (Uint8 i = 0; i < 3; ++i)
 		{
@@ -1194,7 +1168,7 @@ void JE_highScoreScreen(void)
 		// Draw 2-player scores.
 		if (boardTwoPlayer >= 0)
 		{
-			draw_font_hv_shadow(VGAScreen, xCenter, 120, miscText[47], normal_font, centered, 15, -3, false, 2);
+			drawFontHvShadowAligned(VGAScreen, xCenter, 120, miscText[47], FONT_NORMAL, ALIGN_CENTER, 15, -3, false, 2);
 
 			for (Uint8 i = 0; i < 3; ++i)
 			{
@@ -1225,8 +1199,7 @@ void JE_highScoreScreen(void)
 		if (rightControlVisible)
 			blit_sprite2x2(VGAScreen, xRightControl, yControls, shopSpriteSheet, 281);
 
-		helpBoxColor = 15;
-		JE_helpBox(VGAScreen, 103, 182, miscText[56], 25);
+		JE_helpBox(VGAScreen, 103, 182, miscText[56], 25, 7, 15, 1, FULL_SHADE);
 
 		if (restart)
 		{
@@ -1237,19 +1210,20 @@ void JE_highScoreScreen(void)
 			restart = false;
 		}
 
-		do
+		while (true)
 		{
-			service_SDL_events(true);
-
 			JE_mouseStart();
 			JE_showVGA();
 			JE_mouseReplace();
 
-			SDL_Delay(16);
+			waitUntilElapsed();
+			waitUntilHasInput(INPUT_ANY);
 
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
-		} while (!(newkey || newmouse));
+			if (hasInput(INPUT_NO_MOTION))
+				break;
+
+			setFrameCount(1);
+		}
 
 		// Handle interaction.
 
@@ -1257,25 +1231,28 @@ void JE_highScoreScreen(void)
 		bool rightAction = false;
 		bool done = false;
 
-		if (newmouse)
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_NO_MOTION, &mouseInput))
 		{
-			switch (lastmouse_but)
+			switch (mouseInput.button)
 			{
 			case SDL_BUTTON_LEFT:
 			{
 				if (leftControlVisible &&
-				    mouse_y >= yControls &&
-				    mouse_x >= xLeftControl &&
-				    mouse_x < xLeftControl + wControl)
+				    mouseInput.y >= yControls &&
+				    mouseInput.x >= xLeftControl &&
+				    mouseInput.x < xLeftControl + wControl)
 				{
 					JE_playSampleNum(S_CURSOR);
 
 					leftAction = true;
 				}
 				else if (rightControlVisible &&
-				         mouse_y >= yControls &&
-				         mouse_x >= xRightControl &&
-				         mouse_x < xRightControl + wControl)
+				         mouseInput.y >= yControls &&
+				         mouseInput.x >= xRightControl &&
+				         mouseInput.x < xRightControl + wControl)
 				{
 					JE_playSampleNum(S_CURSOR);
 
@@ -1294,9 +1271,9 @@ void JE_highScoreScreen(void)
 				break;
 			}
 		}
-		else if (newkey)
+		else if (keyboardGetInput(&keyboardInput))
 		{
-			switch (lastkey_scan)
+			switch (keyboardInput.scancode)
 			{
 			case SDL_SCANCODE_LEFT:
 			{
@@ -1373,11 +1350,10 @@ void JE_gammaCorrect(Palette *colorBuffer, JE_byte gamma)
 
 JE_boolean JE_gammaCheck(void)
 {
-	bool temp = keysactive[SDL_SCANCODE_F11] != 0;
+	bool temp = keysactive[SDL_SCANCODE_F11];
 	if (temp)
 	{
 		keysactive[SDL_SCANCODE_F11] = false;
-		newkey = false;
 		gammaCorrection = (gammaCorrection + 1) % 4;
 		memcpy(colors, palettes[pcxpal[3-1]], sizeof(colors));
 		JE_gammaCorrect(&colors, gammaCorrection);
@@ -1400,7 +1376,7 @@ void JE_doInGameSetup(void)
 
 		while (true)
 		{
-			service_SDL_events(false);
+			setFrameCount(1);
 
 			if (packet_in[0] && SDLNet_Read16(&packet_in[0]->data[0]) == PACKET_GAME_MENU)
 			{
@@ -1409,9 +1385,8 @@ void JE_doInGameSetup(void)
 			}
 
 			network_update();
-			network_check();
 
-			SDL_Delay(16);
+			waitUntilElapsed();
 		}
 	}
 #endif
@@ -1459,8 +1434,7 @@ void JE_doInGameSetup(void)
 
 			while (true)
 			{
-				service_SDL_events(false);
-				JE_showVGA();
+				setFrameCount(1);
 
 				if (packet_in[0])
 				{
@@ -1480,9 +1454,8 @@ void JE_doInGameSetup(void)
 				}
 
 				network_update();
-				network_check();
 
-				SDL_Delay(16);
+				waitUntilElapsed();
 			}
 		}
 		else
@@ -1498,10 +1471,9 @@ void JE_doInGameSetup(void)
 
 		while (!network_is_sync())
 		{
-			service_SDL_events(false);
+			setFrameCount(1);
 
-			network_check();
-			SDL_Delay(16);
+			waitUntilElapsed();
 		}
 
 		VGAScreen = temp_surface; /* side-effect of game_screen */
@@ -1554,6 +1526,8 @@ JE_boolean JE_inGameSetup(void)
 
 	for (bool done = false; !done; )
 	{
+		setFrameCount(1);
+
 		if (restart)
 		{
 			// Main box
@@ -1583,7 +1557,7 @@ JE_boolean JE_inGameSetup(void)
 
 			const bool selected = i == selectedIndex;
 
-			draw_font_hv_shadow(VGAScreen, xMenuItemName, y, name, normal_font, left_aligned, 15, -4 + (selected ? 2 : 0), false, 2);
+			drawFontHvShadow(VGAScreen, xMenuItemName, y, name, FONT_NORMAL, 15, -4 + (selected ? 2 : 0), false, 2);
 
 			switch (i)
 			{
@@ -1599,12 +1573,12 @@ JE_boolean JE_inGameSetup(void)
 			}
 			case MENU_ITEM_DETAIL_LEVEL:
 			{
-				draw_font_hv_shadow(VGAScreen, xMenuItemValue, y, detailLevel[processorType-1], normal_font, left_aligned, 15, -4 + (selected ? 2 : 0), false, 2);
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, detailLevel[processorType-1], FONT_NORMAL, 15, -4 + (selected ? 2 : 0), false, 2);
 				break;
 			}
 			case MENU_ITEM_GAME_SPEED:
 			{
-				draw_font_hv_shadow(VGAScreen, xMenuItemValue, y, gameSpeedText[gameSpeed-1], normal_font, left_aligned, 15, -4 + (selected ? 2 : 0), false, 2);
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, gameSpeedText[gameSpeed-1], FONT_NORMAL, 15, -4 + (selected ? 2 : 0), false, 2);
 				break;
 			}
 			}
@@ -1613,27 +1587,12 @@ JE_boolean JE_inGameSetup(void)
 		// Draw help text.
 		JE_outTextAdjust(VGAScreen, 10, 147, mainMenuHelp[helpIndexes[selectedIndex]], 14, 6, TINY_FONT, true);
 
-		service_SDL_events(true);
-
 		JE_mouseStart();
 		JE_showVGA();
 		JE_mouseReplace();
 
-		bool mouseMoved = false;
-		do
-		{
-			SDL_Delay(16);
-
-			Uint16 oldMouseX = mouse_x;
-			Uint16 oldMouseY = mouse_y;
-
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
-
-			NETWORK_KEEP_ALIVE();
-
-			mouseMoved = mouse_x != oldMouseX || mouse_y != oldMouseY;
-		} while (!(newkey || newmouse || mouseMoved));
+		waitUntilElapsed();
+		waitUntilHasInput(INPUT_ANY);
 
 		// Handle interaction.
 
@@ -1641,15 +1600,18 @@ JE_boolean JE_inGameSetup(void)
 		bool leftAction = false;
 		bool rightAction = false;
 
-		if (mouseMoved || newmouse)
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_ANY, &mouseInput))
 		{
 			// Find menu item that was hovered or clicked.
-			if (mouse_x >= xMenuItem && mouse_x < xMenuItem + wMenuItem)
+			if (mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem)
 			{
 				for (size_t i = 0; i < menuItemsCount; ++i)
 				{
 					const int yMenuItem = yMenuItems + dyMenuItems * i;
-					if (mouse_y >= yMenuItem && mouse_y < yMenuItem + hMenuItem)
+					if (mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 					{
 						if (selectedIndex != i)
 						{
@@ -1658,18 +1620,18 @@ JE_boolean JE_inGameSetup(void)
 							selectedIndex = i;
 						}
 
-						if (newmouse && lastmouse_but == SDL_BUTTON_LEFT &&
-						    lastmouse_x >= xMenuItem && lastmouse_x < xMenuItem + wMenuItem &&
-						    lastmouse_y >= yMenuItem && lastmouse_y < yMenuItem + hMenuItem)
+						if (mouseInput.button == SDL_BUTTON_LEFT &&
+						    mouseInput.x >= xMenuItem && mouseInput.x < xMenuItem + wMenuItem &&
+						    mouseInput.y >= yMenuItem && mouseInput.y < yMenuItem + hMenuItem)
 						{
 							// Act on menu item via name.
-							if (lastmouse_x >= xMenuItemName && lastmouse_x < xMenuItemName + wMenuItemName)
+							if (mouseInput.x >= xMenuItemName && mouseInput.x < xMenuItemName + wMenuItemName)
 							{
 								action = true;
 							}
 
 							// Act on menu item via value.
-							else if (lastmouse_x >= xMenuItemValue && lastmouse_x < xMenuItemValue + wMenuItemValue)
+							else if (mouseInput.x >= xMenuItemValue && mouseInput.x < xMenuItemValue + wMenuItemValue)
 							{
 								switch (i)
 								{
@@ -1679,7 +1641,7 @@ JE_boolean JE_inGameSetup(void)
 
 									const int w = ((255 + 6) / 12) * (3 + 1) - 1;
 
-									int value = (lastmouse_x - xMenuItemValue) * 255 / (w - 1);
+									int value = (mouseInput.x - xMenuItemValue) * 255 / (w - 1);
 									tyrMusicVolume = MIN(MAX(0, value), 255);
 
 									set_volume(tyrMusicVolume, fxVolume);
@@ -1689,7 +1651,7 @@ JE_boolean JE_inGameSetup(void)
 								{
 									const int w = ((255 + 6) / 12) * (3 + 1) - 1;
 
-									int value = (lastmouse_x - xMenuItemValue) * 255 / (w - 1);
+									int value = (mouseInput.x - xMenuItemValue) * 255 / (w - 1);
 									fxVolume = MIN(MAX(0, value), 255);
 
 									set_volume(tyrMusicVolume, fxVolume);
@@ -1713,20 +1675,17 @@ JE_boolean JE_inGameSetup(void)
 					}
 				}
 			}
-		}
 
-		if (newmouse)
-		{
-			if (lastmouse_but == SDL_BUTTON_RIGHT)
+			if (mouseInput.button == SDL_BUTTON_RIGHT)
 			{
 				JE_playSampleNum(S_SPRING);
 
 				done = true;
 			}
 		}
-		else if (newkey)
+		else if (keyboardGetInput(&keyboardInput))
 		{
-			switch (lastkey_scan)
+			switch (keyboardInput.scancode)
 			{
 			case SDL_SCANCODE_UP:
 			{
@@ -1919,13 +1878,14 @@ JE_boolean JE_inGameSetup(void)
 
 void JE_inGameHelp(void)
 {
+	mouseSetRelative(false);
+
+	setFrameCount(1);
+
 	SDL_Surface *temp_surface = VGAScreen;
 	VGAScreen = VGAScreenSeg; /* side-effect of game_screen */
 
 	//tempScreenSeg = VGAScreenSeg;
-
-	JE_clearKeyboard();
-	JE_wipeKey();
 
 	JE_barShade(VGAScreen, 1, 1, 262, 182); /*Main Box*/
 	JE_barShade(VGAScreen, 3, 3, 260, 180);
@@ -1935,88 +1895,67 @@ void JE_inGameHelp(void)
 
 	if (twoPlayerMode)  // Two-Player Help
 	{
-		helpBoxColor = 3;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 20,  4, 36, 50);
+		JE_HBox(VGAScreen, 20,  4, 36, 50, 7, 3, 3);
 
 		// weapon help
 		blit_sprite(VGAScreenSeg, 2, 21, OPTION_SHAPES, 43);
-		helpBoxColor = 5;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 55, 20, 37, 40);
+		JE_HBox(VGAScreen, 55, 20, 37, 40, 7, 5, 3);
 
 		// sidekick help
 		blit_sprite(VGAScreenSeg, 5, 36, OPTION_SHAPES, 41);
-		helpBoxColor = 5;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 40, 43, 34, 44);
+		JE_HBox(VGAScreen, 40, 43, 34, 44, 7, 5, 3);
 
 		// shield/armor help
 		blit_sprite(VGAScreenSeg, 2, 79, OPTION_SHAPES, 42);
-		helpBoxColor = 5;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 54, 84, 35, 40);
+		JE_HBox(VGAScreen, 54, 84, 35, 40, 7, 5, 3);
 
-		helpBoxColor = 5;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 5, 126, 38, 55);
-		helpBoxColor = 5;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 5, 160, 39, 55);
+		JE_HBox(VGAScreen, 5, 126, 38, 55, 7, 5, 3);
+		JE_HBox(VGAScreen, 5, 160, 39, 55, 7, 5, 3);
 	}
 	else
 	{
 		// power bar help
 		blit_sprite(VGAScreenSeg, 15, 5, OPTION_SHAPES, 40);
-		helpBoxColor = 5;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 40, 10, 31, 45);
+		JE_HBox(VGAScreen, 40, 10, 31, 45, 7, 5, 3);
 
 		// weapon help
 		blit_sprite(VGAScreenSeg, 5, 37, OPTION_SHAPES, 39);
-		helpBoxColor = 5;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 40, 40, 32, 44);
-		helpBoxColor = 5;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 40, 60, 33, 44);
+		JE_HBox(VGAScreen, 40, 40, 32, 44, 7, 5, 3);
+		JE_HBox(VGAScreen, 40, 60, 33, 44, 7, 5, 3);
 
 		// sidekick help
 		blit_sprite(VGAScreenSeg, 5, 98, OPTION_SHAPES, 41);
-		helpBoxColor = 5;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 40, 103, 34, 44);
+		JE_HBox(VGAScreen, 40, 103, 34, 44, 7, 5, 3);
 
 		// shield/armor help
 		blit_sprite(VGAScreenSeg, 2, 138, OPTION_SHAPES, 42);
-		helpBoxColor = 5;
-		helpBoxBrightness = 3;
-		JE_HBox(VGAScreen, 54, 143, 35, 40);
+		JE_HBox(VGAScreen, 54, 143, 35, 40, 7, 5, 3);
 	}
 
 	// "press a key"
 	blit_sprite(VGAScreenSeg, 16, 189, OPTION_SHAPES, 36);  // in-game text area
 	JE_outText(VGAScreenSeg, 120 - JE_textWidth(miscText[5-1], TINY_FONT) / 2 + 20, 190, miscText[5-1], 0, 4);
 
-	do
+	while (true)
 	{
-		service_SDL_events(true);
-
 		JE_mouseStart();
 		JE_showVGA();
 		JE_mouseReplace();
 
-		SDL_Delay(16);
+		waitUntilElapsed();
+		waitUntilHasInput(INPUT_ANY);
 
-		push_joysticks_as_keyboard();
-		service_SDL_events(false);
+		if (getInput())
+			break;
 
-		NETWORK_KEEP_ALIVE();
-	} while (!(newkey || newmouse));
+		setFrameCount(1);
+	}
 
 	textErase = 1;
 
 	VGAScreen = temp_surface;
+
+	mouseSetRelative(true);
 }
 
 void JE_highScoreCheck(void)
@@ -2068,8 +2007,6 @@ void JE_highScoreCheck(void)
 			for (int i = 2; i > slot; --i)
 				memcpy(&t2kHighScores[table][i], &t2kHighScores[table][i - 1], sizeof(T2KHighScoreType));
 
-			wait_noinput(false, true, false);
-
 			JE_clr256(VGAScreen);
 			JE_showVGA();
 			memcpy(colors, palettes[0], sizeof(colors));
@@ -2096,9 +2033,11 @@ void JE_highScoreCheck(void)
 
 				JE_barShade(VGAScreen, 65, 55, 255, 155);
 
+				SDL_StartTextInput();
+
 				do
 				{
-					service_SDL_events(true);
+					setFrameCount(1);
 
 					JE_dString(VGAScreen, JE_fontCenter(miscText[51], FONT_SHAPES), 3, miscText[51], FONT_SHAPES);
 
@@ -2121,7 +2060,8 @@ void JE_highScoreCheck(void)
 					sprintf(buffer, "%s %d", miscText[37], temp_score);
 					JE_textShade(VGAScreen, 70, 70, buffer, 11, 4, FULL_SHADE);
 
-					do
+					// TODO: Rework this so that cursor blink timing is independent of input.
+					while (true)
 					{
 						flash = (flash == 8 * 16 + 10) ? 8 * 16 + 2 : 8 * 16 + 10;
 						temp3 = (temp3 == 6) ? 2 : 6;
@@ -2135,8 +2075,6 @@ void JE_highScoreCheck(void)
 
 						for (int i = 0; i < 14; i++)
 						{
-							setDelay(1);
-
 							JE_mouseStart();
 							JE_showVGA();
 							if (fadein)
@@ -2146,52 +2084,47 @@ void JE_highScoreCheck(void)
 							}
 							JE_mouseReplace();
 
-							push_joysticks_as_keyboard();
-							service_wait_delay();
+							waitUntilElapsed();
 
-							if (newkey || newmouse)
+							if (hasInput(INPUT_NO_MOTION))
 								break;
+
+							setFrameCount(1);
 						}
 
-					} while (!newkey && !newmouse && !new_text);
+						if (hasInput(INPUT_NO_MOTION))
+							break;
+					}
 
 					if (!playing)
 						play_song(31);
 
-					if (mouseButton > 0)
+					MouseInput mouseInput;
+					KeyboardInput keyboardInput;
+
+					if (mouseGetInput(INPUT_NO_MOTION, &mouseInput))
 					{
-						if (mouseX > 56 && mouseX < 142 && mouseY > 123 && mouseY < 149)
+						if (mouseInput.x > 56 && mouseInput.x < 142 &&
+						    mouseInput.y > 123 && mouseInput.y < 149)
 						{
 							quit = true;
 						}
-						else if (mouseX > 151 && mouseX < 237 && mouseY > 123 && mouseY < 149)
+						else if (mouseInput.x > 151 && mouseInput.x < 237 &&
+						         mouseInput.y > 123 && mouseInput.y < 149)
 						{
 							quit = true;
 							cancel = true;
 						}
 					}
-					else if (new_text)
+					else if (keyboardGetInput(&keyboardInput))
 					{
-						for (size_t ti = 0U; last_text[ti] != '\0'; ++ti)
-						{
-							const char c = (unsigned char)last_text[ti] <= 127U ? toupper(last_text[ti]) : 0;
-							if ((c == ' ' || font_ascii[(unsigned char)c] != -1) &&
-							    temp < 28)
-							{
-								stemp[temp] = c;
-								temp += 1;
-							}
-						}
-					}
-					else if (newkey)
-					{
-						switch (lastkey_scan)
+						switch (keyboardInput.scancode)
 						{
 							case SDL_SCANCODE_BACKSPACE:
 							case SDL_SCANCODE_DELETE:
-								if (temp)
+								if (temp > 0)
 								{
-									temp--;
+									temp -= 1;
 									stemp[temp] = ' ';
 								}
 								break;
@@ -2205,8 +2138,18 @@ void JE_highScoreCheck(void)
 							default:
 								break;
 						}
+
+						const Uint8 ch = keyboardInput.ch;
+						if ((ch == ' ' || fontMap[ch] != -1) &&
+						    temp < 28)
+						{
+							stemp[temp] = ch;
+							temp += 1;
+						}
 					}
 				} while (!quit);
+
+				SDL_StopTextInput();
 
 				// Timed Battle mode doesn't allow cancelling, so we ignore it
 				if (!cancel || timedBattleMode)
@@ -2255,7 +2198,7 @@ void JE_highScoreCheck(void)
 				JE_showVGA();
 
 				if (frameCountMax != 0)
-					wait_input(true, true, true);
+					waitUntilGetInput();
 
 				fade_black(15);
 			}
@@ -2332,100 +2275,6 @@ void adjust_difficulty(void)
 	}
 
 	difficultyLevel = MAX((unsigned)difficultyLevel, new_difficulty);
-}
-
-bool load_next_demo(void)
-{
-	if (++demo_num > 5)
-		demo_num = 1;
-
-	char demo_filename[9];
-	snprintf(demo_filename, sizeof(demo_filename), "demo.%d", demo_num);
-	demo_file = dir_fopen_die(data_dir(), demo_filename, "rb"); // TODO: only play demos from existing file (instead of dying)
-
-	difficultyLevel = DIFFICULTY_NORMAL;
-	bonusLevelCurrent = false;
-
-	Uint8 temp;
-	fread_u8_die(&temp, 1, demo_file);
-	JE_initEpisode(temp);
-
-	fread_die(levelName, 1, 10, demo_file);
-	levelName[10] = '\0';
-
-	fread_u8_die(&lvlFileNum, 1, demo_file);
-
-	fread_u8_die(&player[0].items.weapon[FRONT_WEAPON].id,  1, demo_file);
-	fread_u8_die(&player[0].items.weapon[REAR_WEAPON].id,   1, demo_file);
-	fread_u8_die(&player[0].items.super_arcade_mode,        1, demo_file);
-	fread_u8_die(&player[0].items.sidekick[LEFT_SIDEKICK],  1, demo_file);
-	fread_u8_die(&player[0].items.sidekick[RIGHT_SIDEKICK], 1, demo_file);
-	fread_u8_die(&player[0].items.generator,                1, demo_file);
-
-	fread_u8_die(&player[0].items.sidekick_level,           1, demo_file); // could probably ignore
-	fread_u8_die(&player[0].items.sidekick_series,          1, demo_file); // could probably ignore
-
-	fread_u8_die(&initial_episode_num,                      1, demo_file); // could probably ignore
-
-	fread_u8_die(&player[0].items.shield,                   1, demo_file);
-	fread_u8_die(&player[0].items.special,                  1, demo_file);
-	fread_u8_die(&player[0].items.ship,                     1, demo_file);
-
-	for (uint i = 0; i < 2; ++i)
-		fread_u8_die(&player[0].items.weapon[i].power,      1, demo_file);
-
-	Uint8 unused[3];
-	fread_u8_die(unused, 3, demo_file);
-
-	fread_u8_die(&levelSong, 1, demo_file);
-
-	demo_keys = 0;
-
-	Uint8 temp2[2] = { 0, 0 };
-	fread_u8(temp2, 2, demo_file);
-	demo_keys_wait = (temp2[0] << 8) | temp2[1];
-
-	printf("loaded demo '%s'\n", demo_filename);
-
-	return true;
-}
-
-bool replay_demo_keys(void)
-{
-	while (demo_keys_wait == 0)
-	{
-		demo_keys = 0;
-		fread_u8(&demo_keys, 1, demo_file);
-
-		Uint8 temp2[2] = { 0, 0 };
-		fread_u8(temp2, 2, demo_file);
-		demo_keys_wait = (temp2[0] << 8) | temp2[1];
-
-		if (feof(demo_file))
-		{
-			// no more keys
-			return false;
-		}
-	}
-
-	demo_keys_wait--;
-
-	if (demo_keys & (1 << 0))
-		player[0].y -= CURRENT_KEY_SPEED;
-	if (demo_keys & (1 << 1))
-		player[0].y += CURRENT_KEY_SPEED;
-
-	if (demo_keys & (1 << 2))
-		player[0].x -= CURRENT_KEY_SPEED;
-	if (demo_keys & (1 << 3))
-		player[0].x += CURRENT_KEY_SPEED;
-
-	button[0] = (bool)(demo_keys & (1 << 4));
-	button[3] = (bool)(demo_keys & (1 << 5));
-	button[1] = (bool)(demo_keys & (1 << 6));
-	button[2] = (bool)(demo_keys & (1 << 7));
-
-	return true;
 }
 
 /*Street Fighter codes*/
@@ -2520,12 +2369,7 @@ void JE_SFCodes(JE_byte playerNum_, JE_integer PX_, JE_integer PY_, JE_integer m
 
 void JE_playCredits(void)
 {
-	enum { lines_max = 126 };
-	enum { line_max_length = 65 };
-
-	char credstr[lines_max][line_max_length + 1];
-
-	int lines = 0;
+	char credstr[126][65 + 1];  // Tyrian 2000 has 126 lines of credits
 
 	JE_byte currentpic = 0, fade = 0;
 	JE_shortint fadechg = 1;
@@ -2535,17 +2379,30 @@ void JE_playCredits(void)
 
 	load_sprites_file(EXTRA_SHAPES, "estsc.shp");
 
-	setDelay2(1000);
+	setFrameCount2(1000);
 
 	play_song(8);
 
-	// load credits text
-	FILE *f = dir_fopen_die(data_dir(), "tyrian.cdt", "rb");
-	for (lines = 0; lines < lines_max; ++lines)
+	const char *filename = "tyrian.cdt";
+
+	File file = dataFileOpen(filename, "rb");
+	if (file.error)
 	{
-		read_encrypted_pascal_string(credstr[lines], sizeof(credstr[lines]), f);
+		logFatal("Failed to open file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
 	}
-	fclose(f);
+
+	// load credits text
+	for (size_t i = 0; i < COUNTOF(credstr); ++i)
+		readEncryptedString(&file, credstr[i], sizeof credstr[i]);
+
+	if (file.error)
+	{
+		logFatal("Failed to read from file '%s': %s", filename, fileGetError(&file));
+		exit(EXIT_FAILURE);
+	}
+
+	fileClose(&file);
 
 	memcpy(colors, palettes[6-1], sizeof(colors));
 	JE_clr256(VGAScreen);
@@ -2554,10 +2411,11 @@ void JE_playCredits(void)
 
 	//tempScreenSeg = VGAScreenSeg;
 
-	const int ticks_max = lines * 20 * 3;
-	for (int ticks = 0; ticks < ticks_max; ++ticks)
+	const uint ticks_max = COUNTOF(credstr) * 20 * 3;
+	for (uint ticks = 0; ticks < ticks_max; ++ticks)
 	{
-		setDelay(1);
+		setFrameCount(1);
+
 		JE_clr256(VGAScreen);
 
 		blit_sprite_hv(VGAScreenSeg, 319 - sprite(EXTRA_SHAPES, currentpic)->width, 100 - (sprite(EXTRA_SHAPES, currentpic)->height / 2), EXTRA_SHAPES, currentpic, 0x0, fade - 15);
@@ -2573,10 +2431,11 @@ void JE_playCredits(void)
 		if (fade == 15)
 			fadechg = 0;
 
-		if (getDelayTicks2() == 0)
+		if (getFrameCount2Ticks() == 0)
 		{
+			setFrameCount2(900);
+
 			fadechg = -1;
-			setDelay2(900);
 		}
 
 		if (ticks % 200 == 0)
@@ -2639,9 +2498,9 @@ void JE_playCredits(void)
 
 		for (int line = bottom_line - 10; line < bottom_line; ++line)
 		{
-			if (line >= 0 && line < lines_max)
+			if (line >= 0 && (uint)line < COUNTOF(credstr))
 			{
-				if (strcmp(&credstr[line][0], ".") != 0 && strlen(credstr[line]))
+				if (credstr[line][0] != '.' && credstr[line][0] != '\0')
 				{
 					const Uint8 color = credstr[line][0] - 65;
 					const char *text = &credstr[line][1];
@@ -2662,7 +2521,7 @@ void JE_playCredits(void)
 		if (currentpic == sprite_table[EXTRA_SHAPES].count - 1)
 			JE_outTextAdjust(VGAScreen, 5, 180, miscText[54], 2, -2, SMALL_FONT_SHAPES, false);  // levels-in-episode
 
-		if (bottom_line == lines_max - 8)
+		if (bottom_line == COUNTOF(credstr) - 8)
 			fade_song();
 
 		if (ticks == ticks_max - 1)
@@ -2671,13 +2530,9 @@ void JE_playCredits(void)
 			play_song(9);
 		}
 
-		NETWORK_KEEP_ALIVE();
-
 		JE_showVGA();
 
-		wait_delay();
-
-		if (JE_anyButton())
+		if (waitUntilGetInputOrElapsed())
 			break;
 	}
 
@@ -2696,22 +2551,28 @@ void JE_endLevelAni(void)
 
 	if (!constantPlay)
 	{
-		// grant shipedit privileges
+		// Grant ShipEdit privileges
 
-		// special
-		if (player[0].items.special < 21)
-			saveTemp[SAVE_FILES_SIZE + 81 + player[0].items.special] = 1;
-
-		for (uint p = 0; p < COUNTOF(player); ++p)
+		for (size_t p = 0; p < COUNTOF(player); ++p)
 		{
-			// front, rear
-			for (uint i = 0; i < COUNTOF(player[p].items.weapon); ++i)
-				saveTemp[SAVE_FILES_SIZE + player[p].items.weapon[i].id] = 1;
+			for (size_t i = 0; i < COUNTOF(player[p].items.weapon); ++i)
+			{
+				size_t e = (size_t)-1 + player[p].items.weapon[i].id;
+				if (e < COUNTOF(editorItemAvail))
+					editorItemAvail[e] = 1;
+			}
 
-			// options
-			for (uint i = 0; i < COUNTOF(player[p].items.sidekick); ++i)
-				saveTemp[SAVE_FILES_SIZE + 51 + player[p].items.sidekick[i]] = 1;
+			for (size_t i = 0; i < COUNTOF(player[p].items.sidekick); ++i)
+			{
+				size_t e = (size_t)50 + player[p].items.sidekick[i];
+				if (e < COUNTOF(editorItemAvail))
+					editorItemAvail[e] = 1;
+			}
 		}
+
+		size_t e = (size_t)80 + player[0].items.special;
+		if (e < COUNTOF(editorItemAvail))
+			editorItemAvail[e] = 1;
 	}
 
 	adjust_difficulty();
@@ -2719,7 +2580,6 @@ void JE_endLevelAni(void)
 	player[0].last_items = player[0].items;
 	strcpy(lastLevelName, levelName);
 
-	JE_wipeKey();
 	frameCountMax = 4;
 	textGlowFont = SMALL_FONT_SHAPES;
 
@@ -2785,29 +2645,25 @@ void JE_endLevelAni(void)
 
 			for (i = -15; i <= 10; i++)
 			{
-				setDelay(frameCountMax);
+				setFrameCount(frameCountMax);
 
 				blit_sprite_hv(VGAScreenSeg, x, y, OPTION_SHAPES, 46, 0x9, i);
 
-				if (JE_anyButton())
-					frameCountMax = 0;
-
 				JE_showVGA();
 
-				wait_delay();
+				if (waitUntilGetInputOrElapsed())
+					frameCountMax = 0;
 			}
 			for (i = 10; i >= 0; i--)
 			{
-				setDelay(frameCountMax);
+				setFrameCount(frameCountMax);
 
 				blit_sprite_hv(VGAScreenSeg, x, y, OPTION_SHAPES, 46, 0x9, i);
 
-				if (JE_anyButton())
-					frameCountMax = 0;
-
 				JE_showVGA();
 
-				wait_delay();
+				if (waitUntilGetInputOrElapsed())
+					frameCountMax = 0;
 			}
 		}
 		x = *player[0].lives * 1000;
@@ -2821,16 +2677,14 @@ void JE_endLevelAni(void)
 
 		if (cubeMax > 0)
 		{
-			if (cubeMax > 4)
-				cubeMax = 4;
+			if (cubeMax > COUNTOF(cubeList))
+				cubeMax = COUNTOF(cubeList);
 
 			if (frameCountMax != 0)
 				frameCountMax = 1;
 
 			for (temp = 1; temp <= cubeMax; temp++)
 			{
-				NETWORK_KEEP_ALIVE();
-
 				JE_playSampleNum(S_ITEM);
 				x = 20 + 30 * temp;
 				y = 135;
@@ -2839,64 +2693,50 @@ void JE_endLevelAni(void)
 
 				for (i = -15; i <= 10; i++)
 				{
-					setDelay(frameCountMax);
+					setFrameCount(frameCountMax);
 
 					blit_sprite_hv(VGAScreenSeg, x, y, OPTION_SHAPES, 25, 0x9, i);
 
-					if (JE_anyButton())
-						frameCountMax = 0;
-
 					JE_showVGA();
 
-					wait_delay();
+					if (waitUntilGetInputOrElapsed())
+						frameCountMax = 0;
 				}
 				for (i = 10; i >= 0; i--)
 				{
-					setDelay(frameCountMax);
+					setFrameCount(frameCountMax);
 
 					blit_sprite_hv(VGAScreenSeg, x, y, OPTION_SHAPES, 25, 0x9, i);
 
-					if (JE_anyButton())
-						frameCountMax = 0;
-
 					JE_showVGA();
 
-					wait_delay();
+					if (waitUntilGetInputOrElapsed())
+						frameCountMax = 0;
 				}
 			}
 		}
 		else
 		{
-			JE_outTextGlow(VGAScreenSeg, 50, 135, miscText[15-1]);
+			JE_outTextGlow(VGAScreenSeg, 50, 135, miscText[15-1]);  // "None"
 		}
 
 	}
 
+	bool slow;
 	if (frameCountMax != 0)
 	{
 		frameCountMax = 6;
-		temp = 1;
+		slow = true;
 	}
 	else
 	{
-		temp = 0;
+		slow = false;
 	}
 	temp2 = twoPlayerMode ? 150 : 160;
 	JE_outTextGlow(VGAScreenSeg, 90, temp2, miscText[5-1]);
 
-	if (!constantPlay)
-	{
-		do
-		{
-			setDelay(1);
-
-			NETWORK_KEEP_ALIVE();
-
-			wait_delay();
-		} while (!(JE_anyButton() || (frameCountMax == 0 && temp == 1)));
-	}
-
-	wait_noinput(false, false, true); // TODO: should up the joystick repeat temporarily instead
+	if (!constantPlay && !(frameCountMax == 0 && slow))
+		waitUntilGetInput();
 
 	fade_black(15);
 	JE_clr256(VGAScreen);
@@ -2961,21 +2801,28 @@ void JE_operation(JE_byte slot)
 
 		flash = 8 * 16 + 10;
 
-		wait_noinput(false, true, false);
-
 		JE_barShade(VGAScreen, 65, 55, 255, 155);
+
+		SDL_StartTextInput();
 
 		bool quit = false;
 		while (!quit)
 		{
-			service_SDL_events(true);
+			setFrameCount(1);
 
 			blit_sprite(VGAScreen, 50, 50, OPTION_SHAPES, 35);  // message box
 
 			JE_textShade(VGAScreen, 60, 55, miscText[1-1], 11, 4, DARKEN);
 			JE_textShade(VGAScreen, 70, 70, levelName, 11, 4, DARKEN);
 
-			do
+			int text_x = 54 + 45 - (JE_textWidth(miscText[9], FONT_SHAPES) / 2);
+			JE_outTextAdjust(VGAScreen, text_x, 128, miscText[9], 15, -5, FONT_SHAPES, true);
+
+			text_x = 149 + 45 - (JE_textWidth(miscText[10], FONT_SHAPES) / 2);
+			JE_outTextAdjust(VGAScreen, text_x, 128, miscText[10], 15, -5, FONT_SHAPES, true);
+
+			// TODO: Rework this so that cursor blink timing is independent of input.
+			while (true)
 			{
 				flash = (flash == 8 * 16 + 10) ? 8 * 16 + 2 : 8 * 16 + 10;
 				temp3 = (temp3 == 6) ? 2 : 6;
@@ -2987,65 +2834,52 @@ void JE_operation(JE_byte slot)
 				JE_barShade(VGAScreen, tempW + 2, 90, tempW + 6, 95);
 				fill_rectangle_xy(VGAScreen, tempW + 1, 89, tempW + 5, 94, flash);
 
-				int text_x = 54 + 45 - (JE_textWidth(miscText[9], FONT_SHAPES) / 2);
-				JE_outTextAdjust(VGAScreen, text_x, 128, miscText[9], 15, -5, FONT_SHAPES, true);
-
-				text_x = 149 + 45 - (JE_textWidth(miscText[10], FONT_SHAPES) / 2);
-				JE_outTextAdjust(VGAScreen, text_x, 128, miscText[10], 15, -5, FONT_SHAPES, true);
-
 				for (int i = 0; i < 14; i++)
 				{
-					setDelay(1);
-
-					push_joysticks_as_keyboard();
-					service_wait_delay();
-
 					JE_mouseStart();
 					JE_showVGA();
 					JE_mouseReplace();
 
-					if (newkey || newmouse || new_text)
-						break;
-				}
-			} while (!newkey && !newmouse && !new_text);
+					waitUntilElapsed();
 
-			if (mouseButton > 0)
+					if (hasInput(INPUT_NO_MOTION))
+						break;
+
+					setFrameCount(1);
+				}
+
+				if (hasInput(INPUT_NO_MOTION))
+					break;
+			}
+
+			MouseInput mouseInput;
+			KeyboardInput keyboardInput;
+
+			if (mouseGetInput(INPUT_NO_MOTION, &mouseInput))
 			{
-				if (lastmouse_x > 56 && lastmouse_x < 142 && lastmouse_y > 123 && lastmouse_y < 149)
+				if (mouseInput.x > 56 && mouseInput.x < 142 &&
+				    mouseInput.y > 123 && mouseInput.y < 149)
 				{
 					quit = true;
 					if (JE_saveRequest(slot, stemp))
 						JE_saveGame(slot, stemp);
 				}
-				else if (lastmouse_x > 151 && lastmouse_x < 237 && lastmouse_y > 123 && lastmouse_y < 149)
+				else if (mouseInput.x > 151 && mouseInput.x < 237 &&
+				         mouseInput.y > 123 && mouseInput.y < 149)
 				{
 					quit = true;
 					JE_playSampleNum(S_SPRING);
 				}
 			}
-			else if (new_text)
+			else if (keyboardGetInput(&keyboardInput))
 			{
-				for (size_t ti = 0U; last_text[ti] != '\0'; ++ti)
-				{
-					const char c = (unsigned char)last_text[ti] <= 127U ? toupper(last_text[ti]) : 0;
-					if ((c == ' ' || font_ascii[(unsigned char)c] != -1) &&
-					    temp < 14)
-					{
-						JE_playSampleNum(S_CURSOR);
-						stemp[temp] = c;
-						temp += 1;
-					}
-				}
-			}
-			else if (newkey)
-			{
-				switch (lastkey_scan)
+				switch (keyboardInput.scancode)
 				{
 					case SDL_SCANCODE_BACKSPACE:
 					case SDL_SCANCODE_DELETE:
-						if (temp)
+						if (temp > 0)
 						{
-							temp--;
+							temp -= 1;
 							stemp[temp] = ' ';
 							JE_playSampleNum(S_CLICK);
 						}
@@ -3062,11 +2896,20 @@ void JE_operation(JE_byte slot)
 					default:
 						break;
 				}
+
+				const Uint8 ch = keyboardInput.ch;
+				if ((ch == ' ' || fontMap[ch] != -1) &&
+				    temp < 14)
+				{
+					stemp[temp] = ch;
+					temp += 1;
+					JE_playSampleNum(S_CURSOR);
+				}
 			}
 		}
-	}
 
-	wait_noinput(false, true, false);
+		SDL_StopTextInput();
+	}
 }
 
 void JE_inGameDisplays(void)
@@ -3309,8 +3152,8 @@ void JE_mainKeyboardInput(void)
 		keysactive[SDL_SCANCODE_F10] = false;
 		debug = !debug;
 
-		debugHist = 1;
-		debugHistCount = 1;
+		debugHist = 0;
+		debugHistCount = 0;
 
 		/* YKS: clock ticks since midnight replaced by SDL_GetTicks */
 		lastDebugTime = SDL_GetTicks();
@@ -3334,10 +3177,10 @@ void JE_mainKeyboardInput(void)
 	}
 
 	/* pause game */
-	pause_pressed = pause_pressed || keysactive[SDL_SCANCODE_P];
+	pause_pressed |= keysactive[SDL_SCANCODE_P];
 
 	/* in-game setup */
-	ingamemenu_pressed = ingamemenu_pressed || keysactive[SDL_SCANCODE_ESCAPE];
+	ingamemenu_pressed |= keysactive[SDL_SCANCODE_ESCAPE];
 
 	if (keysactive[SDL_SCANCODE_BACKSPACE])
 	{
@@ -3393,7 +3236,6 @@ void JE_pauseGame(void)
 	mouseSetRelative(false);
 
 	JE_boolean done = false;
-	JE_word mouseX, mouseY;
 
 	SDL_Surface *temp_surface = VGAScreen;
 	VGAScreen = VGAScreenSeg; /* side-effect of game_screen */
@@ -3417,7 +3259,7 @@ void JE_pauseGame(void)
 
 		while (true)
 		{
-			service_SDL_events(false);
+			setFrameCount(1);
 
 			if (packet_in[0] && SDLNet_Read16(&packet_in[0]->data[0]) == PACKET_GAME_PAUSE)
 			{
@@ -3426,24 +3268,26 @@ void JE_pauseGame(void)
 			}
 
 			network_update();
-			network_check();
 
-			SDL_Delay(16);
+			waitUntilElapsed();
 		}
 	}
 #endif
 
-	wait_noinput(false, false, true); // TODO: should up the joystick repeat temporarily instead
-
 	do
 	{
-		setDelay(2);
+		setFrameCount(1);
 
-		push_joysticks_as_keyboard();
-		service_SDL_events(true);
+		waitUntilHasInputOrElapsed();
 
-		if ((newkey && lastkey_scan != SDL_SCANCODE_LCTRL && lastkey_scan != SDL_SCANCODE_RCTRL && lastkey_scan != SDL_SCANCODE_LALT && lastkey_scan != SDL_SCANCODE_RALT) ||
-		    JE_mousePosition(&mouseX, &mouseY) > 0)
+		KeyboardInput keyboardInput;
+
+		if ((keyboardGetInput(&keyboardInput) &&
+		     keyboardInput.scancode != SDL_SCANCODE_LCTRL &&
+		     keyboardInput.scancode != SDL_SCANCODE_RCTRL &&
+		     keyboardInput.scancode != SDL_SCANCODE_LALT &&
+		     keyboardInput.scancode != SDL_SCANCODE_RALT) ||
+		    mouseGetInput(INPUT_NO_MOTION, NULL))
 		{
 #ifdef WITH_NETWORK
 			if (isNetworkGame)
@@ -3452,6 +3296,9 @@ void JE_pauseGame(void)
 				network_send(4);  // PACKET_WAITING
 			}
 #endif
+
+			keysactive[SDL_SCANCODE_P] = false;
+
 			done = true;
 		}
 
@@ -3468,8 +3315,6 @@ void JE_pauseGame(void)
 			}
 		}
 #endif
-
-		wait_delay();
 	} while (!done);
 
 #ifdef WITH_NETWORK
@@ -3477,10 +3322,9 @@ void JE_pauseGame(void)
 	{
 		while (!network_is_sync())
 		{
-			service_SDL_events(false);
+			setFrameCount(1);
 
-			network_check();
-			SDL_Delay(16);
+			waitUntilElapsed();
 		}
 	}
 #endif
@@ -3663,13 +3507,13 @@ redo:
 			}
 			else
 			{
-				if (record_demo || play_demo)
+				if (playDemo || recordDemo)
 					inputDevice = 1;  // keyboard is required device for demo recording
 
 				// demo playback input
-				if (play_demo)
+				if (playDemo)
 				{
-					if (!replay_demo_keys())
+					if (!playDemoKeys())
 					{
 						endLevel = true;
 						levelEnd = 40;
@@ -3708,15 +3552,36 @@ redo:
 					}
 				}
 
-				service_SDL_events(false);
-
 				/* mouse input */
 				if ((inputDevice == 0 || inputDevice == 2) && has_mouse)
 				{
-					button[0] |= mouse_pressed[0];
-					button[1] |= mouse_pressed[1];
-					button[2] |= mouse_pressed[2];
-					button[3] |= mouse_pressed[3];
+					// Tyrian 2000 lets each mouse button be assigned an action.
+					const Uint32 mouseButtonMasks[3] = { SDL_BUTTON_LMASK, SDL_BUTTON_RMASK, SDL_BUTTON_MMASK };
+					for (size_t i = 0; i < COUNTOF(mouseButtonMasks); ++i)
+					{
+						if ((mouseButtonsDown & mouseButtonMasks[i]) == 0)
+							continue;
+
+						switch (mouseSettings[i])
+						{
+						case 1:  // Fire main weapon
+							button[0] = true;
+							break;
+						case 2:  // Fire left sidekick
+							button[1] = true;
+							break;
+						case 3:  // Fire right sidekick
+							button[2] = true;
+							break;
+						case 4:  // Fire both sidekicks
+							button[1] = true;
+							button[2] = true;
+							break;
+						case 5:  // Change rear mode
+							button[3] = true;
+							break;
+						}
+					}
 
 					Sint32 mouseXR;
 					Sint32 mouseYR;
@@ -3726,7 +3591,7 @@ redo:
 				}
 
 				/* keyboard input */
-				if ((inputDevice == 0 || inputDevice == 1) && !play_demo)
+				if ((inputDevice == 0 || inputDevice == 1) && !playDemo)
 				{
 					if (keysactive[keySettings[KEY_SETTING_UP]])
 						this_player->y -= CURRENT_KEY_SPEED;
@@ -3738,10 +3603,10 @@ redo:
 					if (keysactive[keySettings[KEY_SETTING_RIGHT]])
 						this_player->x += CURRENT_KEY_SPEED;
 
-					button[0] = button[0] || keysactive[keySettings[KEY_SETTING_FIRE]];
-					button[3] = button[3] || keysactive[keySettings[KEY_SETTING_CHANGE_FIRE]];
-					button[1] = button[1] || keysactive[keySettings[KEY_SETTING_LEFT_SIDEKICK]];
-					button[2] = button[2] || keysactive[keySettings[KEY_SETTING_RIGHT_SIDEKICK]];
+					button[0] |= keysactive[keySettings[KEY_SETTING_FIRE]];
+					button[3] |= keysactive[keySettings[KEY_SETTING_CHANGE_FIRE]];
+					button[1] |= keysactive[keySettings[KEY_SETTING_LEFT_SIDEKICK]];
+					button[2] |= keysactive[keySettings[KEY_SETTING_RIGHT_SIDEKICK]];
 
 					if (constantPlay)
 					{
@@ -3752,34 +3617,8 @@ redo:
 						this_player->x += constantLastX;
 					}
 
-					// TODO: check if demo recording still works
-					if (record_demo)
-					{
-						bool new_input = false;
-
-						for (unsigned int i = 0; i < 8; i++)
-						{
-							bool temp = demo_keys & (1 << i);
-							if (temp != keysactive[keySettings[i]])
-								new_input = true;
-						}
-
-						demo_keys_wait++;
-
-						if (new_input)
-						{
-							Uint8 temp2[2] = { demo_keys_wait >> 8, demo_keys_wait };
-							fwrite_u8(temp2, 2, demo_file);
-
-							demo_keys = 0;
-							for (unsigned int i = 0; i < 8; i++)
-								demo_keys |= keysactive[keySettings[i]] ? (1 << i) : 0;
-
-							fwrite_u8(&demo_keys, 1, demo_file);
-
-							demo_keys_wait = 0;
-						}
-					}
+					if (recordDemo)
+						recordDemoKeys();
 				}
 
 				if (smoothies[9-1])
@@ -4005,7 +3844,7 @@ redo:
 		}
 	}
 
-	if (play_demo)
+	if (playDemo)
 		JE_dString(VGAScreen, 115, 10, miscText[7], SMALL_FONT_SHAPES); // insert coin
 
 	if (this_player->is_alive && !endLevel)
@@ -4678,16 +4517,16 @@ void JE_mainGamePlayerFunctions(void)
 	{
 		JE_playerMovement(&player[0],
 		                  !galagaMode ? inputDevice[0] : 0, 1, shipGr, shipGrPtr,
-		                  &mouseX, &mouseY);
+		                  &player[0].mouseX, &player[0].mouseY);
 		JE_playerMovement(&player[1],
 		                  !galagaMode ? inputDevice[1] : 0, 2, shipGr2, shipGr2ptr,
-		                  &mouseXB, &mouseYB);
+		                  &player[1].mouseX, &player[1].mouseY);
 	}
 	else
 	{
 		JE_playerMovement(&player[0],
 		                  0, 1, shipGr, shipGrPtr,
-		                  &mouseX, &mouseY);
+		                  &player[0].mouseX, &player[0].mouseY);
 	}
 
 	/* == Parallax Map Scrolling == */
@@ -5001,7 +4840,7 @@ void JE_playerCollide(Player *this_player, JE_byte playerNum_)
 					{
 						// picked up orbiting asteroid killer
 						shotMultiPos[SHOT_MISC] = 0;
-						b = player_shot_create(0, SHOT_MISC, this_player->x, this_player->y, mouseX, mouseY, 104, playerNum_);
+						b = player_shot_create(0, SHOT_MISC, this_player->x, this_player->y, player[0].mouseX, player[0].mouseY, 104, playerNum_);
 						shotAvail[z] = 0;
 					}
 					else if (evalue == -4)

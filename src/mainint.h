@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -19,7 +19,6 @@
 #ifndef MAININT_H
 #define MAININT_H
 
-#include "config.h"
 #include "opentyr.h"
 #include "palette.h"
 #include "player.h"
@@ -55,9 +54,6 @@ void JE_sortHighScores(void);
 void JE_highScoreCheck(void);
 void adjust_difficulty(void);
 
-bool load_next_demo(void);
-bool replay_demo_keys(void);
-
 void JE_SFCodes(JE_byte playerNum_, JE_integer PX_, JE_integer PY_, JE_integer mouseX_, JE_integer mouseY_);
 void JE_sort(void);
 
@@ -80,7 +76,7 @@ void JE_inGameDisplays(void);
 void JE_mainKeyboardInput(void);
 void JE_pauseGame(void);
 
-void JE_playerMovement(Player *this_player, JE_byte inputDevice, JE_byte playerNum, JE_word shipGr, Sprite2_array *shipGrPtr_, JE_word *mouseX, JE_word *mouseY);
+void JE_playerMovement(Player *this_player, JE_byte inputDevice, JE_byte playerNum, JE_word shipGr, Sprite2_array *shipGrPtr_, JE_word *mouseX_, JE_word *mouseY_);
 void JE_mainGamePlayerFunctions(void);
 const char *JE_getName(JE_byte pnum);
 

@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,7 +29,7 @@
 #define TRICK      3
 #define NO_SHADE 255
 
-extern const int font_ascii[256];
+extern const Sint8 fontMap[256];
 
 extern JE_byte textGlowFont, textGlowBrightness;
 extern JE_boolean levelWarningDisplay;

@@ -1,6 +1,6 @@
 /*
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -18,18 +18,11 @@
  */
 #include "vga256d.h"
 
-#include "config.h" // For fullscreen stuff
-#include "keyboard.h"
 #include "opentyr.h"
-#include "palette.h"
-#include "video.h"
 
 #include "SDL.h"
 
 #include <assert.h>
-#include <ctype.h>
-#include <math.h>
-#include <stdio.h>
 #include <string.h>
 
 void JE_pix(SDL_Surface *surface, int x, int y, JE_byte c)
@@ -80,7 +73,7 @@ void JE_rectangle(SDL_Surface *surface, int a, int b, int c, int d, int e) /* x1
 	}
 	else
 	{
-		printf("!!! WARNING: Rectangle clipped: %d %d %d %d %d\n", a, b, c, d, e);
+		assert(false);
 	}
 }
 
@@ -110,7 +103,7 @@ void JE_barShade(SDL_Surface *surface, int a, int b, int c, int d) /* x1, y1, x2
 	}
 	else
 	{
-		printf("!!! WARNING: Darker Rectangle clipped: %d %d %d %d\n", a,b,c,d);
+		assert(false);
 	}
 }
 
@@ -145,7 +138,7 @@ void JE_barBright(SDL_Surface *surface, int a, int b, int c, int d) /* x1, y1, x
 	}
 	else
 	{
-		printf("!!! WARNING: Brighter Rectangle clipped: %d %d %d %d\n", a,b,c,d);
+		assert(false);
 	}
 }
 

@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -80,7 +80,10 @@ typedef struct
 	uint weapon_mode;
 	uint superbombs;
 	uint purple_balls_needed;
-	
+
+	Uint16 mouseX;  // FKA NortVars.mouseX, Varz.mouseXB
+	Uint16 mouseY;  // FKA NortVars.mouseY, Varz.mouseYB
+
 	int x, y;
 	int old_x[20], old_y[20];
 	

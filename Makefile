@@ -8,7 +8,8 @@ else
     TYRIAN_DIR = $(gamesdir)/opentyrian2000
 endif
 
-WITH_NETWORK := true
+# true, false, or auto (true if pkg-config can find SDL2_net)
+WITH_NETWORK := auto
 
 ################################################################################
 
@@ -19,6 +20,7 @@ SHELL = /bin/sh
 CC ?= gcc
 INSTALL ?= install
 PKG_CONFIG ?= pkg-config
+WINDRES ?= windres
 
 VCS_IDREV ?= (git describe --tags || git rev-parse --short HEAD)
 
@@ -45,12 +47,27 @@ gamesdir ?= $(datadir)/games
 ###
 
 TARGET := opentyrian2000
+RES :=
+ifeq ($(PLATFORM), WIN32)
+    TARGET := opentyrian2000.exe
+    # The icon, from the same resource script the Visual Studio build uses.
+    RES := obj/resources.o
+endif
 
 SRCS := $(wildcard src/*.c)
 OBJS := $(SRCS:src/%.c=obj/%.o)
 DEPS := $(SRCS:src/%.c=obj/%.d)
 
 ###
+
+ifeq ($(WITH_NETWORK), auto)
+    ifeq ($(shell $(PKG_CONFIG) --exists SDL2_net 2>/dev/null && echo true), true)
+        WITH_NETWORK := true
+    else
+        WITH_NETWORK := false
+        $(info SDL2_net not found; building without network support)
+    endif
+endif
 
 ifeq ($(WITH_NETWORK), true)
     EXTRA_CPPFLAGS += -DWITH_NETWORK
@@ -62,12 +79,17 @@ ifneq ($(OPENTYRIAN_VERSION), )
     EXTRA_CPPFLAGS += -DOPENTYRIAN_VERSION='"$(OPENTYRIAN_VERSION)"'
 endif
 
+# -Wno-format-truncation only exists in GCC; Clang rejects it under -Werror
+ifeq ($(findstring clang, $(shell $(CC) --version 2>/dev/null)), )
+    WNO_FORMAT_TRUNCATION := -Wno-format-truncation
+endif
+
 CPPFLAGS ?= -MMD
 CPPFLAGS += -DNDEBUG
 CFLAGS ?= -pedantic \
           -Wall \
           -Wextra \
-          -Wno-format-truncation \
+          $(WNO_FORMAT_TRUNCATION) \
           -Wno-missing-field-initializers \
           -O2
 LDFLAGS ?=
@@ -123,7 +145,7 @@ installdirs :
 .PHONY : install
 install : $(TARGET) installdirs
 	$(INSTALL_PROGRAM) $(TARGET) $(DESTDIR)$(bindir)/
-	$(INSTALL_DATA) NEWS README $(DESTDIR)$(docdir)/
+	$(INSTALL_DATA) README.md $(DESTDIR)$(docdir)/
 	$(INSTALL_DATA) linux/man/opentyrian2000.6 $(DESTDIR)$(man6dir)/opentyrian2000$(man6ext)
 	$(INSTALL_DATA) linux/opentyrian2000.desktop $(DESTDIR)$(desktopdir)/
 	$(INSTALL_DATA) linux/icons/tyrian2000-22.png $(DESTDIR)$(icondir)/hicolor/22x22/apps/opentyrian2000.png
@@ -135,7 +157,7 @@ install : $(TARGET) installdirs
 .PHONY : uninstall
 uninstall :
 	rm -f $(DESTDIR)$(bindir)/$(TARGET)
-	rm -f $(DESTDIR)$(docdir)/NEWS $(DESTDIR)$(docdir)/README
+	rm -f $(DESTDIR)$(docdir)/README.md
 	rm -f $(DESTDIR)$(man6dir)/opentyrian2000$(man6ext)
 	rm -f $(DESTDIR)$(desktopdir)/opentyrian2000.desktop
 	rm -f $(DESTDIR)$(icondir)/hicolor/22x22/apps/opentyrian2000.png
@@ -148,9 +170,10 @@ uninstall :
 clean :
 	rm -f $(OBJS)
 	rm -f $(DEPS)
+	rm -f $(RES)
 	rm -f $(TARGET)
 
-$(TARGET) : $(OBJS)
+$(TARGET) : $(OBJS) $(RES)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -o $@ $^ $(ALL_LDLIBS)
 
 -include $(DEPS)
@@ -158,3 +181,7 @@ $(TARGET) : $(OBJS)
 obj/%.o : src/%.c
 	@mkdir -p "$(dir $@)"
 	$(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) -c -o $@ $<
+
+obj/resources.o : visualc/resources.rc visualc/tyrian.ico
+	@mkdir -p "$(dir $@)"
+	$(WINDRES) --include-dir visualc -i $< -o $@

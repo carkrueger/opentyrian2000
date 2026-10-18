@@ -1,6 +1,6 @@
 /* 
  * OpenTyrian: A modern cross-platform port of Tyrian
- * Copyright (C) 2007-2009  The OpenTyrian Development Team
+ * Copyright (C) The OpenTyrian Development Team
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -19,15 +19,15 @@
 #include "xmas.h"
 
 #include "font.h"
-#include "joystick.h"
 #include "keyboard.h"
 #include "mouse.h"
+#include "nortsong.h"
 #include "palette.h"
 #include "sprite.h"
 #include "vga256d.h"
 #include "video.h"
 
-#include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 
 bool xmas = false;
@@ -77,10 +77,11 @@ bool xmas_prompt(void)
 	
 	size_t selectedIndex = 0;
 
+	setFrameCount(1);
+
 	for (; ; )
 	{
-		bool mouseMoved = false;
-		do
+		while (true)
 		{
 			if (restart)
 			{
@@ -118,7 +119,7 @@ bool xmas_prompt(void)
 
 			// Draw prompt.
 			for (uint i = 0; i < COUNTOF(prompt); ++i)
-				draw_font_hv_full_shadow(VGAScreen, xCenter, yPrompt + dyPrompt * i, prompt[i], normal_font, centered, (i % 2) ? 2 : 4, -2, true, 1);
+				drawFontHvFullShadowAligned(VGAScreen, xCenter, yPrompt + dyPrompt * i, prompt[i], FONT_NORMAL, ALIGN_CENTER, (i % 2) ? 2 : 4, -2, true, 1);
 
 			// Draw choices.
 			for (size_t i = 0; i < COUNTOF(choices); ++i)
@@ -127,7 +128,7 @@ bool xmas_prompt(void)
 
 				const bool selected = (selectedIndex == i);
 
-				draw_font_hv_full_shadow(VGAScreen, x, yChoice, choices[i], normal_font, centered, 15, selected ? -2 : -4, true, 1);
+				drawFontHvFullShadowAligned(VGAScreen, x, yChoice, choices[i], FONT_NORMAL, ALIGN_CENTER, 15, selected ? -2 : -4, true, 1);
 			}
 
 			// Draw foreground snowflakes.
@@ -143,43 +144,41 @@ bool xmas_prompt(void)
 				restart = false;
 			}
 
-			service_SDL_events(true);
-
 			JE_mouseStart();
 			JE_showVGA();
 			JE_mouseReplace();
 
-			SDL_Delay(16);
+			waitUntilElapsed();
 
-			Uint16 oldMouseX = mouse_x;
-			Uint16 oldMouseY = mouse_y;
+			setFrameCount(1);
 
-			push_joysticks_as_keyboard();
-			service_SDL_events(false);
-
-			mouseMoved = mouse_x != oldMouseX || mouse_y != oldMouseY;
-		} while (!(newkey || newmouse || mouseMoved));
+			if (hasInput(INPUT_ANY))
+				break;
+		}
 
 		// Handle interaction.
 
 		bool action = false;
 		bool cancel = false;
 
-		if (mouseMoved || newmouse)
+		MouseInput mouseInput;
+		KeyboardInput keyboardInput;
+
+		if (mouseGetInput(INPUT_ANY, &mouseInput))
 		{
 			// Find choice that was hovered or clicked.
-			if (mouse_y >= yChoice && mouse_y < yChoice + hChoice)
+			if (mouseInput.y >= yChoice && mouseInput.y < yChoice + hChoice)
 			{
 				for (size_t i = 0; i < COUNTOF(choices); ++i)
 				{
 					const int xChoice = xCenter - wChoice + wChoice * (int)i;
-					if (mouse_x >= xChoice && mouse_x < xChoice + wChoice)
+					if (mouseInput.x >= xChoice && mouseInput.x < xChoice + wChoice)
 					{
 						selectedIndex = i;
 
-						if (newmouse && lastmouse_but == SDL_BUTTON_LEFT &&
-						    lastmouse_x >= xChoice && lastmouse_x < xChoice + wChoice &&
-						    lastmouse_y >= yChoice && lastmouse_y < yChoice + hChoice)
+						if (mouseInput.button == SDL_BUTTON_LEFT &&
+						    mouseInput.x >= xChoice && mouseInput.x < xChoice + wChoice &&
+							mouseInput.y >= yChoice && mouseInput.y < yChoice + hChoice)
 						{
 							action = true;
 						}
@@ -188,18 +187,15 @@ bool xmas_prompt(void)
 					}
 				}
 			}
-		}
 
-		if (newmouse)
-		{
-			if (lastmouse_but == SDL_BUTTON_RIGHT)
+			if (mouseInput.button == SDL_BUTTON_RIGHT)
 			{
 				cancel = true;
 			}
 		}
-		else if (newkey)
+		else if (keyboardGetInput(&keyboardInput))
 		{
-			switch (lastkey_scan)
+			switch (keyboardInput.scancode)
 			{
 			case SDL_SCANCODE_LEFT:
 			{
