@@ -64,8 +64,12 @@ data, bundled from `data/`; another directory can be given with
 `python3 -m http.server`, and open `opentyrian2000.html`; browsers do not run
 WebAssembly from `file://` pages.
 
-Configuration and saved games are stored in the browser (IndexedDB).  Network
-play is not available.  The page around the game is in `web/`.
+Configuration and saved games are stored in the browser (IndexedDB).  While
+the game is not running (before starting it, or after quitting), saved games
+can be downloaded as `tyrian.sav`, the same format as Tyrian 2000's
+`TYRIAN.SAV`, and uploaded from such a file or from playtyrian.com's
+`opentyrian2000_saves.json`.  Network play is not available.  The page around
+the game is in `web/`.
 
 The `Web` GitHub Actions workflow builds the same files and can publish them
 with GitHub Pages: enable Pages with *GitHub Actions* as the source and set the

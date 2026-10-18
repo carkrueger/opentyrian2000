@@ -86,6 +86,36 @@
 			color: var(--accent);
 			font-weight: 600;
 		}
+		#saves {
+			display: flex;
+			flex-wrap: wrap;
+			justify-content: center;
+			gap: 8px;
+			max-width: 32em;
+		}
+		#saves button {
+			font: inherit;
+			font-size: 13px;
+			padding: 4px 12px;
+			border: 1px solid #444;
+			border-radius: 4px;
+			background: #111;
+			color: var(--fg);
+			cursor: pointer;
+		}
+		#saves button:hover, #saves button:focus-visible {
+			border-color: var(--accent);
+		}
+		#saves button:disabled {
+			opacity: 0.5;
+			cursor: default;
+		}
+		#saves-status {
+			flex-basis: 100%;
+			min-height: 1.4em;
+			color: var(--muted);
+			font-size: 13px;
+		}
 		#start p {
 			margin: 0;
 			max-width: 32em;
@@ -133,6 +163,12 @@
 			Arrow keys to move, Space to fire, Enter to change fire mode, Ctrl/Alt for sidekicks,
 			Esc for the menu.  The mouse works too.  Progress is saved in this browser.
 		</p>
+		<div id="saves" hidden>
+			<button id="download-saves" type="button">Download saved games</button>
+			<button id="upload-saves" type="button">Upload saved games</button>
+			<input id="upload-file" type="file" accept=".sav,.json" hidden>
+			<div id="saves-status" role="status"></div>
+		</div>
 		<p>
 			OpenTyrian2000 is free software under the GNU GPL
 			(<a href="https://github.com/KScl/opentyrian2000">source code</a>).
@@ -175,6 +211,7 @@
 				}
 			},
 			onRuntimeInitialized: function () {
+				savesStatus.textContent = '';
 				startScreen.hidden = true;
 				fullscreenButton.hidden = false;
 				canvas.focus();
@@ -192,6 +229,7 @@
 				playButton.textContent = 'Play again';
 				playButton.disabled = false;
 				startScreen.hidden = false;
+				updateSavesPanel();
 				playButton.focus();
 			},
 		};
@@ -218,10 +256,92 @@
 
 		document.getElementById('play').addEventListener('click', play);
 		document.addEventListener('keydown', function (event) {
-			if (!startScreen.hidden && (event.key === 'Enter' || event.key === ' ')) {
+			// Other buttons on the start page handle Enter and Space themselves.
+			var onOtherControl = /^(BUTTON|INPUT|A)$/.test(event.target.tagName) && event.target.id !== 'play';
+			if (!startScreen.hidden && !onOtherControl && (event.key === 'Enter' || event.key === ' ')) {
 				event.preventDefault();
 				play();
 			}
+		});
+
+		// Saved games.  They can be downloaded as tyrian.sav (the same format as Tyrian 2000's TYRIAN.SAV) and
+		// uploaded from such a file or from playtyrian.com's opentyrian2000_saves.json, while the game is not
+		// running: the start page and the page shown after quitting.
+		var savesPanel = document.getElementById('saves');
+		var savesStatus = document.getElementById('saves-status');
+		var downloadSavesButton = document.getElementById('download-saves');
+		var uploadFile = document.getElementById('upload-file');
+
+		function updateSavesPanel() {
+			downloadSavesButton.disabled = Module.exportSaves() === null;
+			savesPanel.hidden = false;
+		}
+
+		Module.onUserFilesReady = updateSavesPanel;  // called by pre.js
+
+		downloadSavesButton.addEventListener('click', function () {
+			var data = Module.exportSaves();
+			if (!data) {
+				savesStatus.textContent = 'There are no saved games yet.';
+				return;
+			}
+			var link = document.createElement('a');
+			link.href = URL.createObjectURL(new Blob([data], { type: 'application/octet-stream' }));
+			link.download = 'tyrian.sav';
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			setTimeout(function () { URL.revokeObjectURL(link.href); }, 10000);
+			savesStatus.textContent = 'Downloaded tyrian.sav (saved games and high scores).';
+		});
+
+		document.getElementById('upload-saves').addEventListener('click', function () {
+			uploadFile.click();
+		});
+
+		// playtyrian.com exports { "tyrian.sav": base64, "tyrian.cfg": base64, ... }; only the saved games
+		// are taken from it.
+		function savesFromJson(text) {
+			var saves;
+			try {
+				saves = JSON.parse(text)['tyrian.sav'];
+			} catch (error) {
+				saves = undefined;
+			}
+			if (typeof saves !== 'string')
+				throw new Error('This file does not contain saved games.');
+			var binary = atob(saves);
+			var data = new Uint8Array(binary.length);
+			for (var i = 0; i < binary.length; ++i)
+				data[i] = binary.charCodeAt(i);
+			return data;
+		}
+
+		uploadFile.addEventListener('change', function () {
+			var file = uploadFile.files[0];
+			uploadFile.value = '';
+			if (!file)
+				return;
+			file.arrayBuffer().then(function (buffer) {
+				var data = new Uint8Array(buffer);
+				if (/\.json$/i.test(file.name) || data[0] === 0x7b /* { */)
+					data = savesFromJson(new TextDecoder().decode(data));
+				var problem = Module.checkSaves(data);
+				if (problem)
+					throw new Error(problem);
+				if (!confirm('Replace the saved games and high scores in this browser with the ones from ' + file.name + '?'))
+					return false;
+				return Module.importSaves(data).then(function () { return true; });
+			}).then(function (imported) {
+				if (imported === false)
+					return;
+				savesStatus.textContent = exited
+					? 'Saved games uploaded.  Press Play again to use them.'
+					: 'Saved games uploaded.';
+				updateSavesPanel();
+			}).catch(function (error) {
+				savesStatus.textContent = error.message;
+			});
 		});
 
 		// Controllers.  Browsers hide a controller from the page until one of its buttons is pressed, and the
