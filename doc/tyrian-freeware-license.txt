@@ -6,3 +6,7 @@ Tyrian was developed by Eclipse Software and was published by Epic MegaGames in
 terms:
 
     Feel free to play it all you want and share it with friends.
+
+Tyrian 2000, a re-release of Tyrian published by XSIV Games in 1999, has
+likewise been released as freeware.  Its data files are distributed at
+<https://www.camanis.net/tyrian/tyrian2000.zip>.
