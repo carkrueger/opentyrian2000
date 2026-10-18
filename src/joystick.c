@@ -46,6 +46,9 @@ Joystick *joystick = NULL;
 
 static const int joystick_analog_max = 32767;
 
+// Whether the game controller subsystem is available; it is used to find the button layout of gamepads.
+static bool gameControllerInitialized = false;
+
 // eliminates axis movement below the threshold
 int joystick_axis_threshold(int j, int value)
 {
@@ -270,6 +273,21 @@ void init_joysticks(void)
 	
 	SDL_JoystickEventState(SDL_IGNORE);
 	
+	// Use the button positions (rather than labels) of Nintendo controllers so that default assignments
+	// are by position on all gamepads.
+	SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
+	
+	if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0)
+	{
+		logWarn("Failed to initialize SDL game controller: %s", SDL_GetError());
+	}
+	else
+	{
+		gameControllerInitialized = true;
+		
+		SDL_GameControllerEventState(SDL_IGNORE);
+	}
+	
 	joysticks = SDL_NumJoysticks();
 	joystick = malloc(joysticks * sizeof(*joystick));
 	
@@ -280,8 +298,10 @@ void init_joysticks(void)
 		joystick[j].handle = SDL_JoystickOpen(j);
 		if (joystick[j].handle != NULL)
 		{
-			logInfo("Joystick detected: %s (%d axes, %d buttons, %d hats)",
+			logInfo("Joystick detected: %s (%04x:%04x, %d axes, %d buttons, %d hats)",
 				SDL_JoystickName(joystick[j].handle),
+				SDL_JoystickGetDeviceVendor(j),
+				SDL_JoystickGetDeviceProduct(j),
 				SDL_JoystickNumAxes(joystick[j].handle),
 				SDL_JoystickNumButtons(joystick[j].handle),
 				SDL_JoystickNumHats(joystick[j].handle));
@@ -312,43 +332,144 @@ void deinit_joysticks(void)
 	
 	free(joystick);
 	
+	if (gameControllerInitialized)
+	{
+		SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER);
+		gameControllerInitialized = false;
+	}
+	
 	SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
+}
+
+static bool bind_to_assignment(const SDL_GameControllerButtonBind *bind, Joystick_assignment *assignment)
+{
+	switch (bind->bindType)
+	{
+	case SDL_CONTROLLER_BINDTYPE_BUTTON:
+		assignment->type = BUTTON;
+		assignment->num = bind->value.button;
+		return true;
+	
+	case SDL_CONTROLLER_BINDTYPE_HAT:
+		assignment->type = HAT;
+		assignment->num = bind->value.hat.hat;
+		assignment->x_axis = (bind->value.hat.hat_mask & (SDL_HAT_LEFT | SDL_HAT_RIGHT)) != 0;
+		assignment->negative_axis = (bind->value.hat.hat_mask & (SDL_HAT_LEFT | SDL_HAT_UP)) != 0;
+		return true;
+	
+	default:
+		return false;
+	}
+}
+
+// Assigns the standard gamepad layout to a joystick that SDL recognizes as a game controller.  SDL matches
+// controllers by vendor and product ID (and driver) against its controller database, and the mapping says
+// which joystick buttons, axes, and hats are the gamepad's A, B, X, Y, d-pad, etc.  The joystick button
+// numbers differ between SDL's drivers (XInput, HIDAPI, evdev, ...), so they must not be hardcoded.
+static bool reset_gamepad_assignments(int j)
+{
+	if (!gameControllerInitialized || !SDL_IsGameController(j))
+		return false;
+	
+	SDL_GameController *controller = SDL_GameControllerOpen(j);
+	if (controller == NULL)
+	{
+		logWarn("Failed to open game controller: %s", SDL_GetError());
+		return false;
+	}
+	
+	// directions (up, right, down, left): left stick and d-pad
+	static const SDL_GameControllerButton dpad[4] =
+	{
+		SDL_CONTROLLER_BUTTON_DPAD_UP,
+		SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+		SDL_CONTROLLER_BUTTON_DPAD_DOWN,
+		SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+	};
+	
+	for (uint a = 0; a < 4; a++)
+	{
+		const SDL_GameControllerAxis axis = (a % 2 == 0) ? SDL_CONTROLLER_AXIS_LEFTY : SDL_CONTROLLER_AXIS_LEFTX;
+		const SDL_GameControllerButtonBind axisBind = SDL_GameControllerGetBindForAxis(controller, axis);
+		if (axisBind.bindType == SDL_CONTROLLER_BINDTYPE_AXIS)
+		{
+			joystick[j].assignment[a][0].type = AXIS;
+			joystick[j].assignment[a][0].num = axisBind.value.axis;
+			joystick[j].assignment[a][0].negative_axis = (a == 0 || a == 3);
+		}
+		
+		const SDL_GameControllerButtonBind dpadBind = SDL_GameControllerGetBindForButton(controller, dpad[a]);
+		bind_to_assignment(&dpadBind, &joystick[j].assignment[a][1]);
+	}
+	
+	// actions, by button position: A is bottom, B is right, X is left, Y is top
+	static const SDL_GameControllerButton actions[6][2] =
+	{
+		{ SDL_CONTROLLER_BUTTON_A,     SDL_CONTROLLER_BUTTON_INVALID },        // fire
+		{ SDL_CONTROLLER_BUTTON_Y,     SDL_CONTROLLER_BUTTON_INVALID },        // change fire
+		{ SDL_CONTROLLER_BUTTON_X,     SDL_CONTROLLER_BUTTON_LEFTSHOULDER },   // left sidekick
+		{ SDL_CONTROLLER_BUTTON_B,     SDL_CONTROLLER_BUTTON_RIGHTSHOULDER },  // right sidekick
+		{ SDL_CONTROLLER_BUTTON_START, SDL_CONTROLLER_BUTTON_INVALID },        // menu
+		{ SDL_CONTROLLER_BUTTON_BACK,  SDL_CONTROLLER_BUTTON_INVALID },        // pause
+	};
+	
+	for (uint a = 0; a < COUNTOF(actions); a++)
+	{
+		for (uint i = 0; i < COUNTOF(actions[a]); i++)
+		{
+			if (actions[a][i] == SDL_CONTROLLER_BUTTON_INVALID)
+				continue;
+			
+			const SDL_GameControllerButtonBind bind = SDL_GameControllerGetBindForButton(controller, actions[a][i]);
+			bind_to_assignment(&bind, &joystick[j].assignment[4 + a][i]);
+		}
+	}
+	
+	SDL_GameControllerClose(controller);
+	
+	return true;
 }
 
 void reset_joystick_assignments(int j)
 {
 	assert(j < joysticks);
 	
-	// defaults: first 2 axes, first hat, first 6 buttons
+	// clear assignments
 	for (uint a = 0; a < COUNTOF(joystick[j].assignment); a++)
 	{
-		// clear assignments
 		for (uint i = 0; i < COUNTOF(joystick[j].assignment[a]); i++)
 			joystick[j].assignment[a][i].type = NONE;
-		
-		if (a < 4)
+	}
+	
+	if (!reset_gamepad_assignments(j))
+	{
+		// defaults: first 2 axes, first hat, first 6 buttons
+		for (uint a = 0; a < COUNTOF(joystick[j].assignment); a++)
 		{
-			if (SDL_JoystickNumAxes(joystick[j].handle) >= 2)
+			if (a < 4)
 			{
-				joystick[j].assignment[a][0].type = AXIS;
-				joystick[j].assignment[a][0].num = (a + 1) % 2;
-				joystick[j].assignment[a][0].negative_axis = (a == 0 || a == 3);
+				if (SDL_JoystickNumAxes(joystick[j].handle) >= 2)
+				{
+					joystick[j].assignment[a][0].type = AXIS;
+					joystick[j].assignment[a][0].num = (a + 1) % 2;
+					joystick[j].assignment[a][0].negative_axis = (a == 0 || a == 3);
+				}
+				
+				if (SDL_JoystickNumHats(joystick[j].handle) >= 1)
+				{
+					joystick[j].assignment[a][1].type = HAT;
+					joystick[j].assignment[a][1].num = 0;
+					joystick[j].assignment[a][1].x_axis = (a == 1 || a == 3);
+					joystick[j].assignment[a][1].negative_axis = (a == 0 || a == 3);
+				}
 			}
-			
-			if (SDL_JoystickNumHats(joystick[j].handle) >= 1)
+			else
 			{
-				joystick[j].assignment[a][1].type = HAT;
-				joystick[j].assignment[a][1].num = 0;
-				joystick[j].assignment[a][1].x_axis = (a == 1 || a == 3);
-				joystick[j].assignment[a][1].negative_axis = (a == 0 || a == 3);
-			}
-		}
-		else
-		{
-			if (a - 4 < (unsigned)SDL_JoystickNumButtons(joystick[j].handle))
-			{
-				joystick[j].assignment[a][0].type = BUTTON;
-				joystick[j].assignment[a][0].num = a - 4;
+				if (a - 4 < (unsigned)SDL_JoystickNumButtons(joystick[j].handle))
+				{
+					joystick[j].assignment[a][0].type = BUTTON;
+					joystick[j].assignment[a][0].num = a - 4;
+				}
 			}
 		}
 	}
