@@ -23,6 +23,7 @@
 #include "loudness.h"
 #include "opentyr.h"
 #include "sndmast.h"
+#include "video.h"
 
 #include "SDL.h"
 
@@ -106,6 +107,40 @@ Uint32 getFrameCount2Ticks(void)
 void delayUntilElapsed(void)
 {
 	const Uint32 half = 1 << 9;
+
+	// Present the last frame again on every timer tick before the next frame is due, so that the display
+	// receives frames at the timer's rate (about 69.6 Hz in normal speed) instead of the game's frame rate,
+	// which a variable refresh rate display can follow exactly.  The game itself is not affected.
+	if (framePeriod != 0 && can_repeat_frames((Uint32)(1000ull * 1000 * 1024 / framePeriod)))
+	{
+		Uint32 cursor = SDL_GetTicks() << 10;
+		for (; ; )
+		{
+			Sint32 remaining = frameCountEnd - cursor;
+			if (remaining <= 0)
+				break;
+
+			// timer ticks strictly before the one the next frame is due at
+			Uint32 ticksBefore = ((Uint32)remaining - 1) / framePeriod;
+			if (ticksBefore == 0)
+				break;
+
+			Uint32 tick = frameCountEnd - ticksBefore * framePeriod;
+			cursor = tick;
+
+			// SDL_Delay() can return slightly before the time it was asked to wait for, so the last frame may
+			// have been presented just before the tick it belongs to; do not present that tick again.
+			if ((Sint32)(tick - get_last_present_time()) < (Sint32)(framePeriod / 2))
+				continue;
+
+			Sint32 untilTick = tick - (SDL_GetTicks() << 10);
+			if (untilTick > 0)
+				SDL_Delay(((Uint32)untilTick + half) >> 10);
+
+			present_again();
+		}
+	}
+
 	Uint32 now = SDL_GetTicks() << 10;
 	Sint32 diff = frameCountEnd - now;
 	if (diff >= 0)

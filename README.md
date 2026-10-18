@@ -42,6 +42,7 @@ of `opentyrian.cfg`):
 |---|---|---|
 | Full-Screen | `fullscreen_mode` | `Desktop` (borderless window at the desktop's resolution and refresh rate) or a full-screen mode such as `3840x1600@70`, which switches the display to that resolution and refresh rate.  The menu offers the desktop's resolution at every refresh rate and any mode at about 70 Hz (or a multiple of it). |
 | VSync | `vsync` | Presents each frame in step with the display's refresh.  Turn it on for even motion. |
+| Frame Repeat | `frame_repeat` | Presents the last frame again on every tick of the game's timer while waiting for the next one, so that frames reach the display at the timer's rate (about 69.6 Hz in normal speed, 56.2 Hz in Slug Mode) instead of the game's frame rate.  For variable refresh rate displays (see below).  The game itself is not affected.  Off by default; frames are not repeated while VSync is on and the display refreshes slower than the timer, since presenting would then have to wait. |
 | Renderer | `renderer` | The graphics API.  On Windows the default is `direct3d11`, which variable refresh rate needs. |
 
 To play at 70 Hz:
@@ -75,12 +76,21 @@ To play at 70 Hz:
    frames per second, 5 refreshes each) fits almost exactly.  For a perfect
    fit in normal speed, use 69.56 Hz instead.
 
-Variable refresh rate (FreeSync, G-Sync, Adaptive-Sync) only helps if the
-display's range reaches down to the game's frame rate, or if it can repeat
-frames below its range (Low Framerate Compensation, which needs a range whose
-maximum is at least about twice its minimum).  Displays with a range of, for
-example, 48 to 75 Hz cannot do that, so a fixed 70 Hz is the better choice
-there.
+Variable refresh rate (FreeSync, G-Sync, Adaptive-Sync) is an alternative to
+a fixed 70 Hz.  On its own it only helps if the display's range reaches down
+to the game's frame rate (34.8 or 14 frames per second), or if the display can
+repeat frames below its range (Low Framerate Compensation, which needs a range
+whose maximum is at least about twice its minimum); a range of, for example,
+48 to 75 Hz cannot do that.  With **Frame Repeat** on, frames reach the display
+at the timer's rate instead, which is within such a range, and the display
+follows the game's timer exactly.  For variable refresh rate:
+
+1. Turn on Adaptive-Sync / FreeSync in the display's own menu and in the
+   graphics driver's control panel (on Windows 10 and 11 also *Variable
+   refresh rate* under Settings > Display > Graphics settings).
+2. Set the desktop to the display's highest refresh rate.
+3. In **Setup > Graphics**: Renderer `direct3d11` (on Windows), VSync On,
+   Frame Repeat On.
 
 ## Game Data
 

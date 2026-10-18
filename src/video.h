@@ -39,6 +39,7 @@ extern const char *const scaling_mode_names[ScalingMode_MAX];
 extern int fullscreen_display; // -1 means windowed
 extern SDL_DisplayMode fullscreen_mode; // w == 0 means the desktop's mode (borderless full-screen)
 extern bool vsync;
+extern bool frame_repeat; // present frames again on every timer tick while waiting for the next one
 extern char render_driver[32]; // empty means SDL's default
 extern ScalingMode scaling_mode;
 
@@ -62,6 +63,9 @@ bool set_fullscreen_mode_by_name(const char *name);
 void change_fullscreen_mode(const SDL_DisplayMode *mode);
 size_t get_fullscreen_mode_choices(SDL_DisplayMode *modes, size_t modes_max);
 void change_vsync(bool enable);
+bool can_repeat_frames(Uint32 rate_mhz);
+void present_again(void);
+Uint32 get_last_present_time(void);
 void change_render_driver(const char *name);
 
 void deinit_video(void);

@@ -38,6 +38,7 @@ const char *const scaling_mode_names[ScalingMode_MAX] = {
 int fullscreen_display;
 SDL_DisplayMode fullscreen_mode = { 0 };
 bool vsync = false;
+bool frame_repeat = false;
 #ifdef _WIN32
 // Direct3D 11 presents with the flip model, which variable refresh rate (FreeSync, G-Sync, Adaptive-Sync)
 // needs in windowed and borderless full-screen mode; SDL's default on Windows is Direct3D 9.
@@ -350,6 +351,45 @@ size_t get_fullscreen_mode_choices(SDL_DisplayMode *modes, size_t modes_max)
 	return count;
 }
 
+/**
+ * Whether frames are to be presented again at the given rate (in mHz).  With VSync on a display whose
+ * refresh rate is lower than that, presenting would have to wait for the display, which could delay the
+ * game's own frames, so frames are not repeated then.
+ */
+bool can_repeat_frames(Uint32 rate_mhz)
+{
+	if (!frame_repeat || main_window_texture == NULL)
+		return false;
+
+	if (!vsync)
+		return true;
+
+	SDL_DisplayMode mode;
+	if (SDL_GetCurrentDisplayMode(SDL_GetWindowDisplayIndex(main_window), &mode) != 0 || mode.refresh_rate == 0)
+		return false;
+
+	return (Uint32)mode.refresh_rate * 1000 >= rate_mhz;
+}
+
+// When the last frame was presented, in milliseconds as fixed point UQ22.10 (like the timer in nortsong.c).
+static Uint32 last_present_time = 0;
+
+Uint32 get_last_present_time(void)
+{
+	return last_present_time;
+}
+
+/** Presents the last frame again (see frame_repeat). */
+void present_again(void)
+{
+	last_present_time = SDL_GetTicks() << 10;
+
+	SDL_SetRenderDrawColor(main_window_renderer, 0, 0, 0, 255);
+	SDL_RenderClear(main_window_renderer);
+	SDL_RenderCopy(main_window_renderer, main_window_texture, NULL, &last_output_rect);
+	SDL_RenderPresent(main_window_renderer);
+}
+
 void change_vsync(bool enable)
 {
 	vsync = enable;
@@ -540,6 +580,8 @@ static void scale_and_flip(SDL_Surface *src_surface)
 
 	SDL_Rect dst_rect;
 	calc_dst_render_rect(src_surface, &dst_rect);
+
+	last_present_time = SDL_GetTicks() << 10;
 
 	// Clear the window and blit the output texture to it
 	SDL_SetRenderDrawColor(main_window_renderer, 0, 0, 0, 255);

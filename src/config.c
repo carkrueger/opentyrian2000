@@ -268,6 +268,8 @@ static void loadOpenTyrianConfig(void)
 
 		config_get_bool_option(section, "vsync", &vsync);
 
+		config_get_bool_option(section, "frame_repeat", &frame_repeat);
+
 		const char *renderer;
 		if (config_get_string_option(section, "renderer", &renderer))
 			SDL_strlcpy(render_driver, renderer, sizeof render_driver);
@@ -329,6 +331,8 @@ static void saveOpenTyrianConfig(void)
 	config_set_string_option(section, "fullscreen_mode", fullscreen_mode_to_name(&fullscreen_mode, fullscreenMode, sizeof fullscreenMode));
 
 	config_set_bool_option(section, "vsync", vsync, NO_YES);
+
+	config_set_bool_option(section, "frame_repeat", frame_repeat, NO_YES);
 
 	config_set_string_option(section, "renderer", render_driver[0] != '\0' ? render_driver : NULL);
 

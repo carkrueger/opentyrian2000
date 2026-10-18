@@ -115,6 +115,18 @@ static const char *getVsyncPickerItem(size_t i, char *buffer, size_t bufferSize)
 	return i == 0 ? "Off" : "On";
 }
 
+static size_t getFrameRepeatPickerItemsCount(void)
+{
+	return 2;
+}
+
+static const char *getFrameRepeatPickerItem(size_t i, char *buffer, size_t bufferSize)
+{
+	(void)buffer, (void)bufferSize;
+
+	return i == 0 ? "Off" : "On";
+}
+
 static size_t getRendererPickerItemsCount(void)
 {
 	return (size_t)SDL_GetNumRenderDrivers();
@@ -168,6 +180,7 @@ void setupMenu(void)
 		MENU_ITEM_DISPLAY,
 		MENU_ITEM_FULLSCREEN_MODE,
 		MENU_ITEM_VSYNC,
+		MENU_ITEM_FRAME_REPEAT,
 		MENU_ITEM_RENDERER,
 		MENU_ITEM_SCALER,
 		MENU_ITEM_SCALING_MODE,
@@ -195,7 +208,7 @@ void setupMenu(void)
 	typedef struct
 	{
 		const char *header;
-		const MenuItem items[8];
+		const MenuItem items[9];
 	} Menu;
 
 	static const Menu menus[] = {
@@ -217,6 +230,7 @@ void setupMenu(void)
 #ifndef __EMSCRIPTEN__
 				{ MENU_ITEM_FULLSCREEN_MODE, "Full-Screen:", "Change the full-screen resolution and refresh rate.", getFullscreenModePickerItemsCount, getFullscreenModePickerItem },
 				{ MENU_ITEM_VSYNC, "VSync:", "Synchronize with the display's refresh.", getVsyncPickerItemsCount, getVsyncPickerItem },
+				{ MENU_ITEM_FRAME_REPEAT, "Frame Repeat:", "Show frames at the timer rate, for variable refresh rate.", getFrameRepeatPickerItemsCount, getFrameRepeatPickerItem },
 				{ MENU_ITEM_RENDERER, "Renderer:", "Change the graphics API used for output.", getRendererPickerItemsCount, getRendererPickerItem },
 #endif
 				{ MENU_ITEM_SCALER, "Scaler:", "Change the pixel art scaling algorithm.", getScalerPickerItemsCount, getScalerPickerItem },
@@ -258,7 +272,7 @@ void setupMenu(void)
 	const int wMenuItemValue = 120;
 	const int wMenuItem = wMenuItemName + wMenuItemValue;
 	const int yMenuItems = 37;
-	const int dyMenuItems = 21;
+	const int dyMenuItems = 19;
 	const int hMenuItem = 13;
 
 	for (; ; )
@@ -328,6 +342,10 @@ void setupMenu(void)
 
 			case MENU_ITEM_VSYNC:
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, vsync ? "On" : "Off", FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				break;
+
+			case MENU_ITEM_FRAME_REPEAT:
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, frame_repeat ? "On" : "Off", FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
 
 			case MENU_ITEM_RENDERER:;
@@ -464,6 +482,7 @@ void setupMenu(void)
 									case MENU_ITEM_DISPLAY:
 									case MENU_ITEM_FULLSCREEN_MODE:
 									case MENU_ITEM_VSYNC:
+									case MENU_ITEM_FRAME_REPEAT:
 									case MENU_ITEM_RENDERER:
 									case MENU_ITEM_SCALER:
 									case MENU_ITEM_SCALING_MODE:
@@ -681,6 +700,14 @@ void setupMenu(void)
 					pickerSelectedIndex = vsync ? 1 : 0;
 					break;
 				}
+				case MENU_ITEM_FRAME_REPEAT:
+				{
+					JE_playSampleNum(S_CLICK);
+
+					currentPicker = selectedMenuItemId;
+					pickerSelectedIndex = frame_repeat ? 1 : 0;
+					break;
+				}
 				case MENU_ITEM_RENDERER:
 				{
 					JE_playSampleNum(S_CLICK);
@@ -860,6 +887,11 @@ void setupMenu(void)
 				{
 					if ((pickerSelectedIndex == 1) != vsync)
 						change_vsync(pickerSelectedIndex == 1);
+					break;
+				}
+				case MENU_ITEM_FRAME_REPEAT:
+				{
+					frame_repeat = pickerSelectedIndex == 1;
 					break;
 				}
 				case MENU_ITEM_RENDERER:
