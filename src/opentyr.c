@@ -79,6 +79,58 @@ static const char *getDisplayPickerItem(size_t i, char *buffer, size_t bufferSiz
 	return buffer;
 }
 
+#ifndef __EMSCRIPTEN__
+static SDL_DisplayMode fullscreenModeChoices[12];
+static size_t fullscreenModeChoicesCount = 0;
+
+static size_t getFullscreenModePickerItemsCount(void)
+{
+	fullscreenModeChoicesCount = get_fullscreen_mode_choices(fullscreenModeChoices, COUNTOF(fullscreenModeChoices));
+	return fullscreenModeChoicesCount;
+}
+
+static const char *getFullscreenModeName(const SDL_DisplayMode *mode, char *buffer, size_t bufferSize)
+{
+	if (mode->w == 0)
+		return "Desktop";
+
+	snprintf(buffer, bufferSize, "%dx%d %dHz", mode->w, mode->h, mode->refresh_rate);
+	return buffer;
+}
+
+static const char *getFullscreenModePickerItem(size_t i, char *buffer, size_t bufferSize)
+{
+	return getFullscreenModeName(&fullscreenModeChoices[i], buffer, bufferSize);
+}
+
+static size_t getVsyncPickerItemsCount(void)
+{
+	return 2;
+}
+
+static const char *getVsyncPickerItem(size_t i, char *buffer, size_t bufferSize)
+{
+	(void)buffer, (void)bufferSize;
+
+	return i == 0 ? "Off" : "On";
+}
+
+static size_t getRendererPickerItemsCount(void)
+{
+	return (size_t)SDL_GetNumRenderDrivers();
+}
+
+static const char *getRendererPickerItem(size_t i, char *buffer, size_t bufferSize)
+{
+	SDL_RendererInfo info;
+	if (SDL_GetRenderDriverInfo((int)i, &info) != 0)
+		return "?";
+
+	SDL_strlcpy(buffer, info.name, bufferSize);
+	return buffer;
+}
+#endif
+
 static size_t getScalerPickerItemsCount(void)
 {
 	return (size_t)scalers_count;
@@ -114,6 +166,9 @@ void setupMenu(void)
 		MENU_ITEM_JUKEBOX,
 		MENU_ITEM_DESTRUCT,
 		MENU_ITEM_DISPLAY,
+		MENU_ITEM_FULLSCREEN_MODE,
+		MENU_ITEM_VSYNC,
+		MENU_ITEM_RENDERER,
 		MENU_ITEM_SCALER,
 		MENU_ITEM_SCALING_MODE,
 		MENU_ITEM_MUSIC_VOLUME,
@@ -140,7 +195,7 @@ void setupMenu(void)
 	typedef struct
 	{
 		const char *header;
-		const MenuItem items[6];
+		const MenuItem items[8];
 	} Menu;
 
 	static const Menu menus[] = {
@@ -159,6 +214,11 @@ void setupMenu(void)
 			.header = "Graphics",
 			.items = {
 				{ MENU_ITEM_DISPLAY, "Display:", "Change the display mode.", getDisplayPickerItemsCount, getDisplayPickerItem },
+#ifndef __EMSCRIPTEN__
+				{ MENU_ITEM_FULLSCREEN_MODE, "Full-Screen:", "Change the full-screen resolution and refresh rate.", getFullscreenModePickerItemsCount, getFullscreenModePickerItem },
+				{ MENU_ITEM_VSYNC, "VSync:", "Synchronize with the display's refresh.", getVsyncPickerItemsCount, getVsyncPickerItem },
+				{ MENU_ITEM_RENDERER, "Renderer:", "Change the graphics API used for output.", getRendererPickerItemsCount, getRendererPickerItem },
+#endif
 				{ MENU_ITEM_SCALER, "Scaler:", "Change the pixel art scaling algorithm.", getScalerPickerItemsCount, getScalerPickerItem },
 				{ MENU_ITEM_SCALING_MODE, "Scaling Mode:", "Change the scaling mode.", getScalingModePickerItemsCount, getScalingModePickerItem },
 				{ MENU_ITEM_DONE, "Done", "Return to the previous menu." },
@@ -195,7 +255,7 @@ void setupMenu(void)
 	const int xMenuItemName = xMenuItem;
 	const int wMenuItemName = 135;
 	const int xMenuItemValue = xMenuItemName + wMenuItemName;
-	const int wMenuItemValue = 95;
+	const int wMenuItemValue = 120;
 	const int wMenuItem = wMenuItemName + wMenuItemValue;
 	const int yMenuItems = 37;
 	const int dyMenuItems = 21;
@@ -260,6 +320,24 @@ void setupMenu(void)
 
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, value, FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
 				break;
+
+#ifndef __EMSCRIPTEN__
+			case MENU_ITEM_FULLSCREEN_MODE:
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, getFullscreenModeName(&fullscreen_mode, buffer, sizeof buffer), FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				break;
+
+			case MENU_ITEM_VSYNC:
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, vsync ? "On" : "Off", FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				break;
+
+			case MENU_ITEM_RENDERER:;
+				SDL_RendererInfo rendererInfo;
+				const char *rendererName = "?";
+				if (SDL_GetRendererInfo(SDL_GetRenderer(main_window), &rendererInfo) == 0)
+					rendererName = rendererInfo.name;
+				drawFontHvShadow(VGAScreen, xMenuItemValue, y, rendererName, FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
+				break;
+#endif
 
 			case MENU_ITEM_SCALER:
 				drawFontHvShadow(VGAScreen, xMenuItemValue, y, scalers[scaler].name, FONT_NORMAL, 15, -3 + (selected ? 2 : 0) + (disabled ? -4 : 0), false, 2);
@@ -384,6 +462,9 @@ void setupMenu(void)
 									switch (menuItems[*selectedMenuItemIndex].id)
 									{
 									case MENU_ITEM_DISPLAY:
+									case MENU_ITEM_FULLSCREEN_MODE:
+									case MENU_ITEM_VSYNC:
+									case MENU_ITEM_RENDERER:
 									case MENU_ITEM_SCALER:
 									case MENU_ITEM_SCALING_MODE:
 									{
@@ -575,6 +656,50 @@ void setupMenu(void)
 					pickerSelectedIndex = (size_t)(fullscreen_display + 1);
 					break;
 				}
+#ifndef __EMSCRIPTEN__
+				case MENU_ITEM_FULLSCREEN_MODE:
+				{
+					JE_playSampleNum(S_CLICK);
+
+					currentPicker = selectedMenuItemId;
+					pickerSelectedIndex = 0;
+					getFullscreenModePickerItemsCount();
+					for (size_t i = 0; i < fullscreenModeChoicesCount; ++i)
+					{
+						if (fullscreenModeChoices[i].w == fullscreen_mode.w &&
+						    fullscreenModeChoices[i].h == fullscreen_mode.h &&
+						    fullscreenModeChoices[i].refresh_rate == fullscreen_mode.refresh_rate)
+							pickerSelectedIndex = i;
+					}
+					break;
+				}
+				case MENU_ITEM_VSYNC:
+				{
+					JE_playSampleNum(S_CLICK);
+
+					currentPicker = selectedMenuItemId;
+					pickerSelectedIndex = vsync ? 1 : 0;
+					break;
+				}
+				case MENU_ITEM_RENDERER:
+				{
+					JE_playSampleNum(S_CLICK);
+
+					currentPicker = selectedMenuItemId;
+					pickerSelectedIndex = 0;
+					SDL_RendererInfo current;
+					if (SDL_GetRendererInfo(SDL_GetRenderer(main_window), &current) == 0)
+					{
+						for (int i = 0; i < SDL_GetNumRenderDrivers(); ++i)
+						{
+							SDL_RendererInfo info;
+							if (SDL_GetRenderDriverInfo(i, &info) == 0 && strcmp(info.name, current.name) == 0)
+								pickerSelectedIndex = (size_t)i;
+						}
+					}
+					break;
+				}
+#endif
 				case MENU_ITEM_SCALER:
 				{
 					JE_playSampleNum(S_CLICK);
@@ -724,6 +849,27 @@ void setupMenu(void)
 						reinit_fullscreen((int)pickerSelectedIndex - 1);
 					break;
 				}
+#ifndef __EMSCRIPTEN__
+				case MENU_ITEM_FULLSCREEN_MODE:
+				{
+					if (pickerSelectedIndex < fullscreenModeChoicesCount)
+						change_fullscreen_mode(&fullscreenModeChoices[pickerSelectedIndex]);
+					break;
+				}
+				case MENU_ITEM_VSYNC:
+				{
+					if ((pickerSelectedIndex == 1) != vsync)
+						change_vsync(pickerSelectedIndex == 1);
+					break;
+				}
+				case MENU_ITEM_RENDERER:
+				{
+					SDL_RendererInfo info;
+					if (SDL_GetRenderDriverInfo((int)pickerSelectedIndex, &info) == 0)
+						change_render_driver(info.name);
+					break;
+				}
+#endif
 				case MENU_ITEM_SCALER:
 				{
 					if (pickerSelectedIndex != scaler)

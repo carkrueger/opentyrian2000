@@ -24,6 +24,7 @@
 
 #include <assert.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -35,6 +36,15 @@ const char *const scaling_mode_names[ScalingMode_MAX] = {
 };
 
 int fullscreen_display;
+SDL_DisplayMode fullscreen_mode = { 0 };
+bool vsync = false;
+#ifdef _WIN32
+// Direct3D 11 presents with the flip model, which variable refresh rate (FreeSync, G-Sync, Adaptive-Sync)
+// needs in windowed and borderless full-screen mode; SDL's default on Windows is Direct3D 9.
+char render_driver[32] = "direct3d11";
+#else
+char render_driver[32] = "";
+#endif
 ScalingMode scaling_mode = SCALE_INTEGER;
 static SDL_Rect last_output_rect = { 0, 0, vga_width, vga_height };
 
@@ -59,6 +69,35 @@ static void window_center_in_display(int display_index);
 static void calc_dst_render_rect(SDL_Surface *src_surface, SDL_Rect *dst_rect);
 static void scale_and_flip(SDL_Surface *);
 
+static void create_window(const SDL_Point *windowed_position)
+{
+	// Create the window with a temporary initial size, hidden until we set up the
+	// scaler and find the true window size
+	main_window = SDL_CreateWindow(opentyrian_str,
+		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+		vga_width, vga_height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN);
+
+	if (main_window == NULL)
+	{
+		logFatal("Failed to create window: %s", SDL_GetError());
+		exit(EXIT_FAILURE);
+	}
+
+	reinit_fullscreen(fullscreen_display);
+	init_renderer();
+	init_texture();
+	init_scaler(scaler);
+
+	if (windowed_position != NULL && fullscreen_display == -1)
+		SDL_SetWindowPosition(main_window, windowed_position->x, windowed_position->y);
+
+	SDL_ShowWindow(main_window);
+
+	SDL_SetRenderDrawColor(main_window_renderer, 0, 0, 0, 255);
+	SDL_RenderClear(main_window_renderer);
+	SDL_RenderPresent(main_window_renderer);
+}
+
 void init_video(void)
 {
 	if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0)
@@ -81,28 +120,7 @@ void init_video(void)
 
 	JE_clr256(VGAScreen);
 
-	// Create the window with a temporary initial size, hidden until we set up the
-	// scaler and find the true window size
-	main_window = SDL_CreateWindow(opentyrian_str,
-		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		vga_width, vga_height, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN);
-
-	if (main_window == NULL)
-	{
-		logFatal("Failed to create window: %s", SDL_GetError());
-		exit(EXIT_FAILURE);
-	}
-
-	reinit_fullscreen(fullscreen_display);
-	init_renderer();
-	init_texture();
-	init_scaler(scaler);
-
-	SDL_ShowWindow(main_window);
-
-	SDL_SetRenderDrawColor(main_window_renderer, 0, 0, 0, 255);
-	SDL_RenderClear(main_window_renderer);
-	SDL_RenderPresent(main_window_renderer);
+	create_window(NULL);
 }
 
 void deinit_video(void)
@@ -121,13 +139,39 @@ void deinit_video(void)
 
 static void init_renderer(void)
 {
-	main_window_renderer = SDL_CreateRenderer(main_window, -1, 0);
+	const Uint32 flags = vsync ? SDL_RENDERER_PRESENTVSYNC : 0;
+
+	int index = -1;
+	for (int i = 0; i < SDL_GetNumRenderDrivers(); ++i)
+	{
+		SDL_RendererInfo info;
+		if (SDL_GetRenderDriverInfo(i, &info) == 0 && strcmp(info.name, render_driver) == 0)
+			index = i;
+	}
+
+	if (index != -1)
+	{
+		main_window_renderer = SDL_CreateRenderer(main_window, index, flags);
+		if (main_window_renderer == NULL)
+			logWarn("Failed to create '%s' renderer: %s", render_driver, SDL_GetError());
+	}
+	else if (render_driver[0] != '\0')
+	{
+		logWarn("Renderer '%s' is not available.", render_driver);
+	}
+
+	if (main_window_renderer == NULL)
+		main_window_renderer = SDL_CreateRenderer(main_window, -1, flags);
 
 	if (main_window_renderer == NULL)
 	{
 		logFatal("Failed to create renderer: %s", SDL_GetError());
 		exit(EXIT_FAILURE);
 	}
+
+	SDL_RendererInfo info;
+	if (SDL_GetRendererInfo(main_window_renderer, &info) == 0)
+		logInfo("Renderer: %s%s", info.name, (info.flags & SDL_RENDERER_PRESENTVSYNC) ? ", vsync" : "");
 }
 
 static void deinit_renderer(void)
@@ -210,12 +254,124 @@ void reinit_fullscreen(int new_display)
 	{
 		window_center_in_display(fullscreen_display);
 
+		if (fullscreen_mode.w != 0)
+		{
+			// Exclusive full-screen in the closest mode the display has (for example, to get a refresh rate
+			// that matches the game's frame rate).
+			SDL_DisplayMode mode;
+			if (SDL_GetClosestDisplayMode(fullscreen_display, &fullscreen_mode, &mode) != NULL &&
+			    SDL_SetWindowDisplayMode(main_window, &mode) == 0 &&
+			    SDL_SetWindowFullscreen(main_window, SDL_WINDOW_FULLSCREEN) == 0)
+			{
+				logInfo("Full-screen mode: %dx%d @ %d Hz", mode.w, mode.h, mode.refresh_rate);
+				return;
+			}
+
+			logWarn("Failed to set full-screen mode %dx%d @ %d Hz: %s",
+			        fullscreen_mode.w, fullscreen_mode.h, fullscreen_mode.refresh_rate, SDL_GetError());
+		}
+
 		if (SDL_SetWindowFullscreen(main_window, SDL_WINDOW_FULLSCREEN_DESKTOP) != 0)
 		{
 			reinit_fullscreen(-1);
 			return;
 		}
 	}
+}
+
+const char *fullscreen_mode_to_name(const SDL_DisplayMode *mode, char *buffer, size_t buffer_size)
+{
+	if (mode->w == 0)
+		return "Desktop";
+
+	snprintf(buffer, buffer_size, "%dx%d@%d", mode->w, mode->h, mode->refresh_rate);
+	return buffer;
+}
+
+bool set_fullscreen_mode_by_name(const char *name)
+{
+	SDL_DisplayMode mode = { 0 };
+	if (strcmp(name, "Desktop") != 0 &&
+	    (sscanf(name, "%dx%d@%d", &mode.w, &mode.h, &mode.refresh_rate) != 3 ||
+	     mode.w <= 0 || mode.h <= 0 || mode.refresh_rate < 0))
+		return false;
+
+	fullscreen_mode = mode;
+	return true;
+}
+
+void change_fullscreen_mode(const SDL_DisplayMode *mode)
+{
+	fullscreen_mode = *mode;
+
+	if (fullscreen_display != -1)
+		reinit_fullscreen(fullscreen_display);
+}
+
+static bool is_fullscreen_mode_choice(const SDL_DisplayMode *mode, const SDL_DisplayMode *desktop)
+{
+	// The desktop's resolution at every refresh rate, and any resolution at about 70 Hz or a multiple of
+	// it, the refresh rate of the VGA mode Tyrian was made for.
+	if (mode->w == desktop->w && mode->h == desktop->h)
+		return true;
+	for (int hz = 70; hz <= 280; hz += 70)
+		if (mode->refresh_rate >= hz - 1 && mode->refresh_rate <= hz + 1)
+			return true;
+	return false;
+}
+
+/** Lists the full-screen modes offered in the setup menu; the first is always the desktop's mode. */
+size_t get_fullscreen_mode_choices(SDL_DisplayMode *modes, size_t modes_max)
+{
+	size_t count = 0;
+	if (count < modes_max)
+		modes[count++] = (SDL_DisplayMode){ 0 };
+
+	int display = fullscreen_display != -1 ? fullscreen_display : window_get_display_index();
+	SDL_DisplayMode desktop;
+	if (SDL_GetDesktopDisplayMode(display, &desktop) != 0)
+		return count;
+
+	for (int i = 0; i < SDL_GetNumDisplayModes(display) && count < modes_max; ++i)
+	{
+		SDL_DisplayMode mode;
+		if (SDL_GetDisplayMode(display, i, &mode) != 0 || !is_fullscreen_mode_choice(&mode, &desktop))
+			continue;
+
+		// Modes are listed per pixel format too; offer each resolution and refresh rate once.
+		bool duplicate = false;
+		for (size_t j = 1; j < count; ++j)
+			if (modes[j].w == mode.w && modes[j].h == mode.h && modes[j].refresh_rate == mode.refresh_rate)
+				duplicate = true;
+		if (!duplicate)
+			modes[count++] = (SDL_DisplayMode){ .w = mode.w, .h = mode.h, .refresh_rate = mode.refresh_rate };
+	}
+
+	return count;
+}
+
+void change_vsync(bool enable)
+{
+	vsync = enable;
+
+	if (SDL_RenderSetVSync(main_window_renderer, vsync ? 1 : 0) != 0)
+		logWarn("Failed to change vsync: %s", SDL_GetError());
+}
+
+void change_render_driver(const char *name)
+{
+	SDL_strlcpy(render_driver, name, sizeof render_driver);
+
+	SDL_Point position;
+	SDL_GetWindowPosition(main_window, &position.x, &position.y);
+
+	// The window is created again too: a window that has been presented to with the flip model (Direct3D
+	// 11 and 12) does not show what is presented with the older blit model (Direct3D 9) anymore.
+	deinit_texture();
+	deinit_renderer();
+	SDL_DestroyWindow(main_window);
+
+	create_window(&position);
 }
 
 void video_on_win_resize(void)

@@ -37,6 +37,9 @@ typedef enum {
 extern const char *const scaling_mode_names[ScalingMode_MAX];
 
 extern int fullscreen_display; // -1 means windowed
+extern SDL_DisplayMode fullscreen_mode; // w == 0 means the desktop's mode (borderless full-screen)
+extern bool vsync;
+extern char render_driver[32]; // empty means SDL's default
 extern ScalingMode scaling_mode;
 
 extern SDL_Surface *VGAScreen, *VGAScreenSeg;
@@ -53,6 +56,13 @@ void reinit_fullscreen(int new_display);
 void toggle_fullscreen(void);
 bool init_scaler(unsigned int new_scaler);
 bool set_scaling_mode_by_name(const char *name);
+
+const char *fullscreen_mode_to_name(const SDL_DisplayMode *mode, char *buffer, size_t buffer_size);
+bool set_fullscreen_mode_by_name(const char *name);
+void change_fullscreen_mode(const SDL_DisplayMode *mode);
+size_t get_fullscreen_mode_choices(SDL_DisplayMode *modes, size_t modes_max);
+void change_vsync(bool enable);
+void change_render_driver(const char *name);
 
 void deinit_video(void);
 

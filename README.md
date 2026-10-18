@@ -25,6 +25,63 @@ Configuration and saved game files are kept in one of the following locations:
 On Windows and Linux, if `opentyrian.cfg` exists in the same directory as the
 executable, the configuration and saved game files will be stored there instead.
 
+## Smooth Motion (70 Hz)
+
+Tyrian was made for the 70 Hz VGA mode of DOS: the game runs at about 34.8
+frames per second in normal speed (every second display refresh) and at about
+14 frames per second in Slug Mode (every fifth).  On a 60 Hz display these
+frame rates do not divide evenly into the refreshes, so some frames stay on
+screen longer than others, and motion looks uneven; the slower the game speed,
+the more noticeable this is.  Running the display at 70 Hz with VSync makes
+every frame stay on screen equally long again.
+
+The relevant settings are in **Setup > Graphics** (and in the `video` section
+of `opentyrian.cfg`):
+
+| Setting | `opentyrian.cfg` | Description |
+|---|---|---|
+| Full-Screen | `fullscreen_mode` | `Desktop` (borderless window at the desktop's resolution and refresh rate) or a full-screen mode such as `3840x1600@70`, which switches the display to that resolution and refresh rate.  The menu offers the desktop's resolution at every refresh rate and any mode at about 70 Hz (or a multiple of it). |
+| VSync | `vsync` | Presents each frame in step with the display's refresh.  Turn it on for even motion. |
+| Renderer | `renderer` | The graphics API.  On Windows the default is `direct3d11`, which variable refresh rate needs. |
+
+To play at 70 Hz:
+
+1. If the display offers a 70 Hz mode, choose it under **Full-Screen**, set
+   **Display** to the display, and turn **VSync** on.
+2. Otherwise a 70 Hz mode can often be added, at the display's native
+   resolution, as a custom resolution.  The graphics driver's control panel
+   may offer this; on Windows, [CRU (Custom Resolution
+   Utility)](https://www.monitortests.com/forum/Thread-Custom-Resolution-Utility-CRU)
+   works with most drivers:
+   1. Start `CRU.exe` and select the display.
+   2. Open the existing entry for the native resolution under *Detailed
+      resolutions* and note its timing (front porch, sync width, back porch,
+      totals, polarity).
+   3. Click *Add...*, choose the *Manual* timing, enter the same values, and
+      set the refresh rate to 70 Hz.  Keeping the totals and only raising the
+      pixel clock usually works if the display supports more than 70 Hz at
+      that resolution; check that the horizontal frequency and pixel clock
+      stay within the display's limits (shown in CRU's *Range limits*).
+   4. Run `restart64.exe` (in the CRU folder) to restart the graphics driver,
+      then choose the new mode under **Full-Screen**, or set it as the
+      desktop's refresh rate and keep **Full-Screen** at `Desktop`.
+
+   If the display stays black, wait: Windows reverts an unconfirmed mode
+   change after 15 seconds.  `reset-all.exe` followed by `restart64.exe`
+   removes all changes made with CRU.  Some drivers (Intel's in particular)
+   may ignore custom resolutions.
+3. 70 Hz suits both speeds well: in normal speed a frame stays on screen for
+   3 refreshes instead of 2 about every 2 seconds, and Slug Mode (14.04
+   frames per second, 5 refreshes each) fits almost exactly.  For a perfect
+   fit in normal speed, use 69.56 Hz instead.
+
+Variable refresh rate (FreeSync, G-Sync, Adaptive-Sync) only helps if the
+display's range reaches down to the game's frame rate, or if it can repeat
+frames below its range (Low Framerate Compensation, which needs a range whose
+maximum is at least about twice its minimum).  Displays with a range of, for
+example, 48 to 75 Hz cannot do that, so a fixed 70 Hz is the better choice
+there.
+
 ## Game Data
 
 OpenTyrian2000 requires the Tyrian 2000 data files, which have been released
