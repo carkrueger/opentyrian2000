@@ -29,6 +29,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __EMSCRIPTEN__
+// Defined in web/library.js.
+extern void webSyncUserFiles(void);
+#endif
+
 #ifdef _WIN32
 #include <direct.h>
 #else
@@ -381,6 +386,15 @@ void fileFlush(File *file)
 
 	file->errnum = errno;
 	file->error = true;
+}
+
+// Makes user files that were written persistent, where that is not automatic.
+void syncUserFiles(void)
+{
+#ifdef __EMSCRIPTEN__
+	// The user directory is backed by IndexedDB (see web/pre.js); copy the changes there.
+	webSyncUserFiles();
+#endif
 }
 
 void fileClose(File *file)

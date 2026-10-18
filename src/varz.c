@@ -34,6 +34,10 @@
 #include "vga256d.h"
 #include "video.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <math.h>
 
 JE_integer tempDat, tempDat2, tempDat3;
@@ -473,6 +477,11 @@ void JE_tyrianHalt(JE_byte code)
 		logInfo("%s", "");
 	}
 
+#ifdef __EMSCRIPTEN__
+	// SDL keeps the browser runtime alive, which would make exit() only halt the program without telling
+	// the page (Module.onExit); the page then offers to start again.
+	emscripten_force_exit(code);
+#endif
 	exit(code);
 }
 

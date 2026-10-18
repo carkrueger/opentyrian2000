@@ -52,6 +52,10 @@
 
 #include "SDL.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -748,6 +752,21 @@ void setupMenu(void)
 	}
 }
 
+#ifdef __EMSCRIPTEN__
+static bool userFilesLoaded = false;
+
+// A browser tab can be closed at any time without the game shutting down, so web/pre.js calls this when
+// the page is hidden (which also happens when it is closed).
+EMSCRIPTEN_KEEPALIVE void webSaveUserFiles(void)
+{
+	if (!userFilesLoaded)
+		return;
+
+	saveConfiguration();
+	saveSaves();
+}
+#endif
+
 int main(int argc, char *argv[])
 {
 #ifndef NDEBUG
@@ -807,6 +826,10 @@ int main(int argc, char *argv[])
 	JE_loadHelpText();
 
 	loadSaves();
+
+#ifdef __EMSCRIPTEN__
+	userFilesLoaded = true;
+#endif
 
 	JE_scanForEpisodes();
 

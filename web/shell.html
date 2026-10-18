@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>OpenTyrian2000</title>
+	<style>
+		:root {
+			--bg: #000;
+			--fg: #d8d0c0;
+			--muted: #8a8478;
+			--accent: #c89a4a;
+		}
+		[hidden] {
+			display: none !important;
+		}
+		html, body {
+			margin: 0;
+			height: 100%;
+			background: var(--bg);
+			color: var(--fg);
+			font: 15px/1.4 system-ui, sans-serif;
+			overflow: hidden;
+		}
+		#game {
+			position: fixed;
+			inset: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+		#canvas {
+			display: block;
+			outline: none;
+			image-rendering: pixelated;
+			/* Fill the window, keeping the aspect ratio; overrides the size SDL sets on the element. */
+			width: min(100vw, 160vh) !important;
+			height: auto !important;
+		}
+		#start {
+			position: fixed;
+			inset: 0;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			justify-content: center;
+			gap: 16px;
+			background: var(--bg);
+			text-align: center;
+			padding: 16px;
+		}
+		#start h1 {
+			margin: 0;
+			font-size: 28px;
+			letter-spacing: 0.05em;
+		}
+		#play {
+			font: inherit;
+			font-size: 18px;
+			padding: 10px 32px;
+			border: 1px solid var(--accent);
+			border-radius: 4px;
+			background: transparent;
+			color: var(--accent);
+			cursor: pointer;
+		}
+		#play:hover, #play:focus-visible {
+			background: var(--accent);
+			color: var(--bg);
+		}
+		#status {
+			min-height: 1.4em;
+			color: var(--muted);
+		}
+		#controller {
+			max-width: 32em;
+			padding: 10px 14px;
+			border: 1px solid #333;
+			border-radius: 4px;
+			font-size: 14px;
+		}
+		#controller.ready {
+			border-color: var(--accent);
+		}
+		#controller strong {
+			color: var(--accent);
+			font-weight: 600;
+		}
+		#start p {
+			margin: 0;
+			max-width: 32em;
+			color: var(--muted);
+			font-size: 13px;
+		}
+		a {
+			color: var(--muted);
+		}
+		#fullscreen {
+			position: fixed;
+			right: 8px;
+			bottom: 8px;
+			font: inherit;
+			font-size: 13px;
+			padding: 4px 10px;
+			border: 1px solid #333;
+			border-radius: 4px;
+			background: #111;
+			color: var(--muted);
+			cursor: pointer;
+			opacity: 0.6;
+		}
+		#fullscreen:hover {
+			opacity: 1;
+		}
+	</style>
+</head>
+<body>
+	<div id="game">
+		<canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+	</div>
+	<button id="fullscreen" type="button" hidden>Fullscreen</button>
+	<div id="start">
+		<h1>OpenTyrian2000</h1>
+		<button id="play" type="button">Play</button>
+		<div id="status">Downloading…</div>
+		<div id="controller">
+			<strong>Playing with a controller?</strong>
+			Connect it and <strong>press any button on it now</strong>, before you start.
+			Browsers only let a page use a controller after one of its buttons has been pressed,
+			and the game looks for controllers when it starts.
+		</div>
+		<p>
+			Arrow keys to move, Space to fire, Enter to change fire mode, Ctrl/Alt for sidekicks,
+			Esc for the menu.  The mouse works too.  Progress is saved in this browser.
+		</p>
+		<p>
+			OpenTyrian2000 is free software under the GNU GPL
+			(<a href="https://github.com/KScl/opentyrian2000">source code</a>).
+			Tyrian 2000 has been released as freeware.
+		</p>
+	</div>
+	<script>
+		var startScreen = document.getElementById('start');
+		var statusText = document.getElementById('status');
+		var canvas = document.getElementById('canvas');
+		var fullscreenButton = document.getElementById('fullscreen');
+
+		var Module = {
+			canvas: canvas,
+			// ?autoplay skips the Play button (without a click, the browser may keep the audio muted).
+			autoPlay: new URLSearchParams(location.search).has('autoplay'),
+			setStatus: function (text) {
+				// Emscripten reports download progress as "Downloading data... (received/total)".
+				var progress = /\((\d+)\/(\d+)\)/.exec(text);
+				if (progress && progress[1] === progress[2])
+					text = 'Ready';
+				else if (progress)
+					text = 'Downloading… ' + Math.floor(100 * progress[1] / progress[2]) + '%';
+				statusText.textContent = text;
+			},
+			onRuntimeInitialized: function () {
+				startScreen.hidden = true;
+				fullscreenButton.hidden = false;
+				canvas.focus();
+			},
+			// Called when the player quits (see JE_tyrianHalt); offer to start again.
+			onExit: function (status) {
+				exited = true;
+				if (document.fullscreenElement)
+					document.exitFullscreen();
+				fullscreenButton.hidden = true;
+				statusText.textContent = status === 0
+					? 'Thanks for playing!'
+					: 'The game stopped because of an error; see the browser console for details.';
+				var playButton = document.getElementById('play');
+				playButton.textContent = 'Play again';
+				playButton.disabled = false;
+				startScreen.hidden = false;
+				playButton.focus();
+			},
+		};
+
+		window.onerror = function () {
+			if (!exited)
+				statusText.textContent = 'Something went wrong; see the browser console for details.';
+		};
+
+		var exited = false;
+
+		function play() {
+			if (exited) {
+				location.reload();
+				return;
+			}
+			document.getElementById('play').disabled = true;
+			statusText.textContent = statusText.textContent || 'Starting…';
+			Module.play();
+		}
+
+		document.getElementById('play').addEventListener('click', play);
+		document.addEventListener('keydown', function (event) {
+			if (!startScreen.hidden && (event.key === 'Enter' || event.key === ' ')) {
+				event.preventDefault();
+				play();
+			}
+		});
+
+		// Controllers.  Browsers hide a controller from the page until one of its buttons is pressed, and the
+		// game only looks for controllers when it starts, so the start page watches for them, says when one
+		// is ready, and lets A or Start (in the browser's standard layout) press Play.
+		var controllerNotice = document.getElementById('controller');
+		var controllerButtonsHeld = {};
+
+		function controllerName(gamepad) {
+			// Chrome: "Name (STANDARD GAMEPAD Vendor: 18d1 Product: 9400)"; Firefox: "18d1-9400-Name".
+			// Chrome calls some controllers "Unknown Gamepad", which is no help to show.
+			var name = gamepad.id.replace(/\s*\(.*\)\s*$/, '').replace(/^[0-9a-f]{4}-[0-9a-f]{4}-/i, '');
+			return /^(unknown gamepad)?$/i.test(name) ? null : name;
+		}
+
+		function showControllers(gamepads) {
+			if (gamepads.length === 0)
+				return;
+			controllerNotice.classList.add('ready');
+			controllerNotice.innerHTML = '';
+			var title = document.createElement('strong');
+			var names = gamepads.map(controllerName).filter(Boolean);
+			title.textContent = 'Controller ready' + (names.length ? ': ' + names.join(', ') : '');
+			controllerNotice.append(title, document.createElement('br'),
+				'Press A or Start to play.  Sound starts once you click or press a key, because browsers ' +
+				'don’t count controller buttons for that.');
+		}
+
+		function pollControllers() {
+			if (!startScreen.hidden && navigator.getGamepads) {
+				var gamepads = Array.prototype.filter.call(navigator.getGamepads(), Boolean);
+				showControllers(gamepads);
+
+				gamepads.forEach(function (gamepad) {
+					// Only a new press counts, not the press that made the controller visible.
+					var pressed = gamepad.mapping === 'standard'
+						? [0, 9].some(function (i) { return gamepad.buttons[i] && gamepad.buttons[i].pressed; })
+						: gamepad.buttons.some(function (button) { return button.pressed; });
+					var held = controllerButtonsHeld[gamepad.index];
+					controllerButtonsHeld[gamepad.index] = pressed;
+					if (pressed && held === false && !document.getElementById('play').disabled)
+						play();
+				});
+			}
+			requestAnimationFrame(pollControllers);
+		}
+
+		window.addEventListener('gamepadconnected', function () {
+			showControllers(Array.prototype.filter.call(navigator.getGamepads(), Boolean));
+		});
+		requestAnimationFrame(pollControllers);
+
+		fullscreenButton.addEventListener('click', function () {
+			Module.requestFullscreen(false, true);
+			canvas.focus();
+		});
+	</script>
+	{{{ SCRIPT }}}
+</body>
+</html>

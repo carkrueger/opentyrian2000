@@ -1,0 +1,74 @@
+name: Web
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EMSDK_VERSION: 6.0.12   # the version the web build was tested with
+
+jobs:
+  build:
+    name: Web (WebAssembly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # git describe --tags for the version string
+      - name: Cache Emscripten SDK
+        uses: actions/cache@v6
+        with:
+          path: ~/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}
+      - name: Install Emscripten SDK
+        run: |
+          [ -d ~/emsdk ] || git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+          ~/emsdk/emsdk install "$EMSDK_VERSION"
+          ~/emsdk/emsdk activate "$EMSDK_VERSION"
+      - name: Cache game data
+        uses: actions/cache@v6
+        with:
+          path: data
+          key: tyrian2000-data-v1
+      - name: Fetch game data
+        run: ./get_data.sh data
+      - name: Build
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          emmake make -j"$(nproc)"
+      - name: Package (page, game, bundled data, licenses)
+        run: |
+          mkdir -p site/licenses
+          cp opentyrian2000.html site/index.html
+          cp opentyrian2000.js opentyrian2000.wasm opentyrian2000.data site/
+          cp COPYING site/licenses/COPYING.txt
+          cp doc/tyrian-freeware-license.txt site/licenses/Tyrian.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: opentyrian2000-web
+          path: site
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          path: site
+
+  # Publishes the web build to GitHub Pages.  Opt-in: enable Pages (Settings > Pages > Source: GitHub Actions)
+  # and set the repository variable DEPLOY_WEB to "true".
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && vars.DEPLOY_WEB == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

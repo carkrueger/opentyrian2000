@@ -50,6 +50,27 @@ Network play is enabled automatically when SDL2_net is found.
 
 A Visual Studio solution is provided in `visualc/`.
 
+### Web Build
+
+OpenTyrian2000 can be built as WebAssembly to run in a web browser, with the
+[Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html):
+
+    ./get_data.sh data
+    emmake make
+
+This produces `opentyrian2000.html`, `.js`, `.wasm`, and `.data` (the game
+data, bundled from `data/`; another directory can be given with
+`DATA_DIR=dir`).  Serve them from a web server, for example with
+`python3 -m http.server`, and open `opentyrian2000.html`; browsers do not run
+WebAssembly from `file://` pages.
+
+Configuration and saved games are stored in the browser (IndexedDB).  Network
+play is not available.  The page around the game is in `web/`.
+
+The `Web` GitHub Actions workflow builds the same files and can publish them
+with GitHub Pages: enable Pages with *GitHub Actions* as the source and set the
+repository variable `DEPLOY_WEB` to `true`.
+
 ## Command-Line Options
 
     -h, --help                   Show help about options

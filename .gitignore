@@ -15,6 +15,13 @@ tyrian.sav
 /opentyrian
 /opentyrian2000
 
+# Web (Emscripten) build output
+/opentyrian2000.html
+/opentyrian2000.js
+/opentyrian2000.wasm
+/opentyrian2000.data
+/site/
+
 # Windows build output
 /opentyrian.exe
 /SDL2.dll

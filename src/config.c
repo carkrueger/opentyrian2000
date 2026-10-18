@@ -763,6 +763,8 @@ void saveConfiguration(void)
 	}
 
 	saveOpenTyrianConfig();
+
+	syncUserFiles();
 }
 
 static const char *const tyrianSaveFilename = "tyrian.sav";
@@ -1017,6 +1019,8 @@ void saveSaves(void)
 
 		fileClose(&file);
 	}
+
+	syncUserFiles();
 }
 
 void encryptSaveData(Uint8 *data)

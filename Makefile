@@ -1,6 +1,10 @@
 # BUILD SETTINGS ###############################################################
 
-ifneq ($(filter Msys Cygwin, $(shell uname -o)), )
+# `emmake make` sets CC to emcc for a WebAssembly build.
+ifneq ($(findstring emcc, $(notdir $(CC))), )
+    PLATFORM := EMSCRIPTEN
+    TYRIAN_DIR = /data
+else ifneq ($(filter Msys Cygwin, $(shell uname -o)), )
     PLATFORM := WIN32
     TYRIAN_DIR = C:\\TYRIAN
 else
@@ -10,6 +14,9 @@ endif
 
 # true, false, or auto (true if pkg-config can find SDL2_net)
 WITH_NETWORK := auto
+
+# Emscripten: directory with the game data to bundle (see get_data.sh)
+DATA_DIR ?= data
 
 ################################################################################
 
@@ -53,6 +60,13 @@ ifeq ($(PLATFORM), WIN32)
     # The icon, from the same resource script the Visual Studio build uses.
     RES := obj/resources.o
 endif
+ifeq ($(PLATFORM), EMSCRIPTEN)
+    # Also produces opentyrian2000.js, .wasm, and .data (the bundled game data).
+    TARGET := opentyrian2000.html
+    WEB_FILES := web/shell.html web/pre.js web/library.js
+    # SDL2_net is not available in the browser.
+    WITH_NETWORK := false
+endif
 
 SRCS := $(wildcard src/*.c)
 OBJS := $(SRCS:src/%.c=obj/%.o)
@@ -95,7 +109,23 @@ CFLAGS ?= -pedantic \
 LDFLAGS ?=
 LDLIBS ?=
 
-ifeq ($(WITH_NETWORK), true)
+ifeq ($(PLATFORM), EMSCRIPTEN)
+    # Emscripten's SDL2 port.  -sASYNCIFY lets the game's blocking loops yield to the browser: under it,
+    # SDL_Delay() becomes emscripten_sleep().
+    SDL_CPPFLAGS := -sUSE_SDL=2
+    SDL_LDFLAGS := -sUSE_SDL=2 \
+                   -sASYNCIFY \
+                   -sASYNCIFY_STACK_SIZE=262144 \
+                   -sSTACK_SIZE=1048576 \
+                   -sALLOW_MEMORY_GROWTH=1 \
+                   -sENVIRONMENT=web \
+                   -lidbfs.js \
+                   --pre-js web/pre.js \
+                   --js-library web/library.js \
+                   --shell-file web/shell.html \
+                   --preload-file $(DATA_DIR)@/data
+    SDL_LDLIBS :=
+else ifeq ($(WITH_NETWORK), true)
     SDL_CPPFLAGS := $(shell $(PKG_CONFIG) sdl2 SDL2_net --cflags)
     SDL_LDFLAGS := $(shell $(PKG_CONFIG) sdl2 SDL2_net --libs-only-L --libs-only-other)
     SDL_LDLIBS := $(shell $(PKG_CONFIG) sdl2 SDL2_net --libs-only-l)
@@ -172,9 +202,10 @@ clean :
 	rm -f $(DEPS)
 	rm -f $(RES)
 	rm -f $(TARGET)
+	rm -f opentyrian2000.js opentyrian2000.wasm opentyrian2000.data
 
-$(TARGET) : $(OBJS) $(RES)
-	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -o $@ $^ $(ALL_LDLIBS)
+$(TARGET) : $(OBJS) $(RES) $(WEB_FILES)
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -o $@ $(OBJS) $(RES) $(ALL_LDLIBS)
 
 -include $(DEPS)
 

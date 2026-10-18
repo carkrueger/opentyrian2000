@@ -41,6 +41,8 @@ bool userFileExists(const char *filename);
 File dataFileOpen(const char *filename, const char *mode);
 File userFileOpen(const char *filename, const char *mode);
 
+void syncUserFiles(void);
+
 void fileSetPosition(File *file, long position);
 long fileGetPosition(File *file);
 long fileGetLength(File *file);
