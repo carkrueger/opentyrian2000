@@ -144,19 +144,35 @@
 		var statusText = document.getElementById('status');
 		var canvas = document.getElementById('canvas');
 		var fullscreenButton = document.getElementById('fullscreen');
+		var ready = false;
+		var playPressed = false;
 
 		var Module = {
 			canvas: canvas,
 			// ?autoplay skips the Play button (without a click, the browser may keep the audio muted).
 			autoPlay: new URLSearchParams(location.search).has('autoplay'),
 			setStatus: function (text) {
-				// Emscripten reports download progress as "Downloading data... (received/total)".
+				if (ready)
+					return;
+				// Emscripten reports download progress as "Downloading data... (received/total)".  When the
+				// server compresses the data, the total is the compressed size, so it can be exceeded.
 				var progress = /\((\d+)\/(\d+)\)/.exec(text);
-				if (progress && progress[1] === progress[2])
-					text = 'Ready';
-				else if (progress)
-					text = 'Downloading… ' + Math.floor(100 * progress[1] / progress[2]) + '%';
-				statusText.textContent = text;
+				if (progress) {
+					var received = Number(progress[1]);
+					var total = Number(progress[2]);
+					text = received < total
+						? 'Downloading… ' + Math.floor(100 * received / total) + '%'
+						: 'Downloading… ' + (received / 1048576).toFixed(1) + ' MB';
+				}
+				if (text)
+					statusText.textContent = text;
+			},
+			// Only the Play button is left to wait for once everything has been downloaded and prepared.
+			monitorRunDependencies: function (left) {
+				if (left === 1 && !playPressed) {
+					ready = true;
+					statusText.textContent = 'Ready';
+				}
 			},
 			onRuntimeInitialized: function () {
 				startScreen.hidden = true;
@@ -192,8 +208,11 @@
 				location.reload();
 				return;
 			}
+			playPressed = true;
+			ready = false;
 			document.getElementById('play').disabled = true;
-			statusText.textContent = statusText.textContent || 'Starting…';
+			if (!statusText.textContent || statusText.textContent === 'Ready')
+				statusText.textContent = 'Starting…';
 			Module.play();
 		}
 
